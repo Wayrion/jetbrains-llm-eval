@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict, Any, List, TypedDict, NotRequired
+import time
 
 from langgraph.graph import StateGraph, END
 
@@ -21,6 +22,7 @@ class AgentState(TypedDict):
     last_result: NotRequired[Dict[str, Any]]
     final_code: NotRequired[str]
     done: NotRequired[bool]
+    metrics: NotRequired[Dict[str, Any]]
 
 
 @dataclass
@@ -43,13 +45,17 @@ def propose(state: AgentState) -> Dict[str, Any]:
     llm: HFChatModel = state["llm"]
     question: str = state["prompt"]
     history: List[Dict[str, str]] = state.get("history", [])
+    metrics: Dict[str, Any] = dict(state.get("metrics", {}))
 
     messages = [{"role": "system", "content": _system_prompt()}]
     messages += history
     messages.append({"role": "user", "content": question})
 
     # Let the model return a full fenced code block; don't stop at ``` which would truncate the code
+    t0 = time.time()
     completion = llm.invoke(messages)
+    dt = time.time() - t0
+    metrics["t_propose_sec"] = metrics.get("t_propose_sec", 0.0) + dt
 
     # Extract python code block if model included fences; fallback to raw text
     code = completion
@@ -61,16 +67,20 @@ def propose(state: AgentState) -> Dict[str, Any]:
                 code = inner.split("\n", 1)[1]
             else:
                 code = inner
-    return {"code": code}
+    return {"code": code, "metrics": metrics}
 
 
 def execute(state: AgentState) -> Dict[str, Any]:
     code: str = state.get("code", "")
     tests: str = state["tests"]
     entry_point: str = state["entry_point"]
+    metrics: Dict[str, Any] = dict(state.get("metrics", {}))
 
+    t0 = time.time()
     result = run_python_with_tests(code, tests, entry_point, timeout_s=10)
-    return {"last_result": result}
+    dt = time.time() - t0
+    metrics["t_execute_sec"] = metrics.get("t_execute_sec", 0.0) + dt
+    return {"last_result": result, "metrics": metrics}
 
 
 def reflect(state: AgentState) -> Dict[str, Any]:
@@ -78,6 +88,7 @@ def reflect(state: AgentState) -> Dict[str, Any]:
     result: Dict[str, Any] = state.get("last_result", {})
     question: str = state["prompt"]
     prev_code: str = state.get("code", "")
+    metrics: Dict[str, Any] = dict(state.get("metrics", {}))
 
     if result.get("passed"):
         return {"final_code": prev_code, "done": True}
@@ -100,7 +111,10 @@ def reflect(state: AgentState) -> Dict[str, Any]:
         },
     ]
     # Do not truncate at fences; we want the full corrected code block
+    t0 = time.time()
     completion = llm.invoke(messages)
+    dt = time.time() - t0
+    metrics["t_reflect_sec"] = metrics.get("t_reflect_sec", 0.0) + dt
     code = completion
     if "```" in completion:
         parts = completion.split("```")
@@ -111,7 +125,7 @@ def reflect(state: AgentState) -> Dict[str, Any]:
             else:
                 code = inner
     # increment iteration counter
-    return {"code": code, "iters": state.get("iters", 0) + 1}
+    return {"code": code, "iters": state.get("iters", 0) + 1, "metrics": metrics}
 
 
 def should_continue(state: AgentState) -> str:

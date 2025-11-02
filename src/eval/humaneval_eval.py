@@ -69,7 +69,7 @@ def _worker_eval(job: Dict[str, Any]) -> Dict[str, Any]:
     dt = time.time() - t0
     last = out_state.get("last_result", {})
     passed = bool(last.get("passed"))
-    return {
+    res = {
         "task_id": job.get("task_id"),
         "passed": passed,
         "exit_code": last.get("exit_code"),
@@ -78,6 +78,15 @@ def _worker_eval(job: Dict[str, Any]) -> Dict[str, Any]:
         "runtime_sec": dt,
         "completion": out_state.get("final_code") or out_state.get("code"),
     }
+    # Attach timing breakdown if available
+    metrics = out_state.get("metrics") or {}
+    if metrics:
+        res["timings_sec"] = {
+            k: float(metrics.get(k, 0.0))
+            for k in ("t_propose_sec", "t_execute_sec", "t_reflect_sec")
+        }
+    res["iters"] = int(out_state.get("iters", 0))
+    return res
 
 
 def extract_fields(sample: Dict[str, Any]) -> Dict[str, str]:
@@ -261,9 +270,37 @@ def run_pass_at_1(
                 "runtime_sec": dt,
                 "completion": out_state.get("final_code") or out_state.get("code"),
             }
+            metrics = out_state.get("metrics") or {}
+            if metrics:
+                res["timings_sec"] = {
+                    k: float(metrics.get(k, 0.0))
+                    for k in ("t_propose_sec", "t_execute_sec", "t_reflect_sec")
+                }
+            res["iters"] = int(out_state.get("iters", 0))
             results.append(res)
             if verbose:
-                print("  passed=", passed, "time=", round(dt, 2), "s")
+                parts = [
+                    f"  passed={passed}",
+                    f"time={round(dt, 2)}s",
+                ]
+                if metrics:
+                    parts.append(
+                        "breakdown="
+                        + str(
+                            {
+                                "propose": round(
+                                    float(metrics.get("t_propose_sec", 0.0)), 2
+                                ),
+                                "execute": round(
+                                    float(metrics.get("t_execute_sec", 0.0)), 2
+                                ),
+                                "reflect": round(
+                                    float(metrics.get("t_reflect_sec", 0.0)), 2
+                                ),
+                            }
+                        )
+                    )
+                print(" ".join(parts))
 
     if estimated_total is not None:
         total = int(estimated_total)

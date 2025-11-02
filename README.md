@@ -106,3 +106,16 @@ Troubleshooting
 - `src/agent/react_agent.py` — LangGraph ReAct loop: propose -> execute -> reflect. The assistant emits a single fenced code block; we extract and execute it.
 - `src/eval/humaneval_eval.py` — evaluation harness for HumanevalPack, sequential or parallel, producing JSONL results and pass@1.
 - `run.py` — CLI wrapper for end-to-end runs.
+
+## Metrics and logs
+
+Per-task result objects (in `results.jsonl` and the verbose printout) now include:
+
+- `runtime_sec` — total wall time for the task (agent + sandbox).
+- `iters` — number of agent reflection iterations actually used.
+- `timings_sec` — per-phase breakdown (when available):
+	- `t_propose_sec` — time spent in the initial LLM proposal.
+	- `t_execute_sec` — cumulative time executing tests in the sandbox across iterations.
+	- `t_reflect_sec` — cumulative time spent in LLM reflection cycles.
+
+When running with `--verbose`, a compact breakdown is also shown per task.
