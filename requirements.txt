@@ -3,3 +3,5 @@ huggingface-hub
 requests
 tqdm
 python-dotenv
+langgraph
+langchain-core
