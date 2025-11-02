@@ -32,6 +32,12 @@ def main() -> None:
         default=None,
         help="HF inference provider (e.g. 'hf-inference' or 'tgi'); defaults to env HF_PROVIDER or 'hf-inference'",
     )
+    p.add_argument(
+        "--dataset-path",
+        type=str,
+        default=None,
+        help="Path to local humaneval parquet (e.g., ./dataset/humaneval_py.parquet). If provided, bypasses HF Hub.",
+    )
     p.add_argument("--out", type=str, default=None, help="Path to JSONL results output")
     p.add_argument("--verbose", action="store_true", help="Verbose output")
     args = p.parse_args()
@@ -43,6 +49,7 @@ def main() -> None:
         temperature=0.0,
         max_new_tokens=512,
         provider=args.provider or None,
+        dataset_path=args.dataset_path or None,
     )
     res = run_pass_at_1(cfg, out_path=args.out, verbose=args.verbose)
 

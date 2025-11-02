@@ -2,12 +2,12 @@
 
 This repo provides a production-ready scaffold using LangGraph to run a ReAct-style agent that:
 
-- Uses a small instruction-tuned model (default: Qwen/Qwen2.5-0.5B-Instruct via Hugging Face Inference API)
+- Uses a small instruction-tuned model (default: Qwen/Qwen2.5-0.5B-Instruct) locally via Transformers
 - Has a sandboxed Python “code interpreter” tool to execute unit tests safely
 - Evaluates on BigCode’s `bigcode/humanevalpack` (python) using pass@1
 
 What’s included
-- `src/agent/llm.py` — lightweight HF Inference API chat wrapper
+- `src/agent/llm.py` — lightweight local Transformers chat wrapper
 - `src/agent/sandbox.py` — sandboxed subprocess runner with CPU/memory/timeout and network-block stubs
 - `src/agent/react_agent.py` — LangGraph ReAct loop: propose -> execute -> reflect
 - `src/eval/humaneval_eval.py` — evaluation harness for HumanevalPack, producing JSONL results and pass@1
@@ -15,7 +15,8 @@ What’s included
 
 Requirements
 - Python 3.13+
-- A Hugging Face account and token with access to serverless inference and the dataset
+- transformers, torch (install a torch build suitable for your platform)
+- datasets
 
 Quick start
 
@@ -28,25 +29,22 @@ source .venv/bin/activate
 uv pip install -r requirements.txt
 ```
 
-2) Authenticate for dataset and inference
+2) Download/copy the Humaneval dataset locally (optional but recommended)
 
-```bash
-huggingface-cli login          # to download humanevalpack
-export HF_API_TOKEN="hf_..."  # to call the HF Inference API
-```
+Place it at `./dataset/humaneval_py.parquet` or pass a custom path with `--dataset-path`.
 
-3) Run the evaluation
+3) Run the evaluation (local model + local dataset)
 
 ```bash
 # Evaluate on first 50 problems with Qwen2.5 0.5B Instruct
-python run.py --model Qwen/Qwen2.5-0.5B-Instruct --max 50 --out results.jsonl --verbose
+python run.py --model Qwen/Qwen2.5-0.5B-Instruct --dataset-path ./dataset/humaneval_py.parquet --max 50 --out results.jsonl --verbose
 ```
 
 This prints a summary JSON with `pass@1` and writes per-problem results to `results.jsonl`.
 
 CLI options
-- `--model` Hugging Face model id; any instruct/chat text-generation model is supported by Inference API. Short aliases are also accepted, e.g. `qwen3-0.6b` -> `Qwen/Qwen2.5-0.5B-Instruct`.
-- `--provider` HF inference provider (defaults to `hf-inference`). Set via `--provider` or `HF_PROVIDER` env. If you run into provider-mapping errors, try `--provider hf-inference` explicitly.
+- `--model` Hugging Face model id to load locally via Transformers. Short aliases are also accepted, e.g. `qwen3-0.6b` -> `Qwen/Qwen2.5-0.5B-Instruct`.
+- `--dataset-path` Optional path to a local parquet (e.g., `./dataset/humaneval_py.parquet`). If not provided, we'll attempt to fetch `bigcode/humanevalpack` with retries.
 - `--max` limit number of problems (default: all in split)
 - `--iters` max agent self-reflection iterations (default 3)
 - `--out` path to JSONL output with per-task results
@@ -72,7 +70,7 @@ Reproducing results
 Run the provided command above. Your score will depend on the model and the subset size. For a quick smoke test, try `--max 5`.
 
 Troubleshooting
-- 401/403 from HF Inference: ensure `HF_API_TOKEN` is exported and has sufficient permissions
-- Dataset download issues: make sure you’re logged in `huggingface-cli login`
-- Slow or OOM inference locally: this implementation uses serverless inference; if you want local inference, replace the LLM in `src/agent/llm.py` with a transformers pipeline and install `torch`/`transformers`
+- Transformers can't find torch: install a platform-appropriate torch build (see https://pytorch.org/get-started/locally/)
+- CUDA not available: generation falls back to CPU; consider smaller models or set `device_map=auto` (default) to use GPU if present
+- Dataset timeouts from HF Hub: use `--dataset-path ./dataset/humaneval_py.parquet` to bypass network
 

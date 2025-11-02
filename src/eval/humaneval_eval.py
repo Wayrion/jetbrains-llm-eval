@@ -20,6 +20,7 @@ class EvalConfig:
     temperature: float = 0.0
     max_new_tokens: int = 512
     provider: Optional[str] = os.environ.get("HF_PROVIDER") or "hf-inference"
+    dataset_path: Optional[str] = os.environ.get("DATASET_PATH")
     dataset_repo: str = os.environ.get("DATASET_REPO", "bigcode/humanevalpack")
     dataset_subset: str = os.environ.get("DATASET_SUBSET", "python")
     dataset_retries: int = int(os.environ.get("DATASET_RETRIES", "3"))
@@ -69,13 +70,35 @@ def _load_humaneval_with_retries(repo: str, subset: str, retries: int, verbose: 
         raise (last_err or e)
 
 
+def _project_root() -> str:
+    # src/eval/humaneval_eval.py -> project root two levels up
+    here = os.path.dirname(__file__)
+    return os.path.abspath(os.path.join(here, "..", ".."))
+
+
+def _load_local_dataset_if_available(path: Optional[str], verbose: bool):
+    # Prefer a local parquet if provided or at dataset/humaneval_py.parquet
+    candidate = path
+    if not candidate:
+        candidate = os.path.join(_project_root(), "dataset", "humaneval_py.parquet")
+    if candidate and os.path.exists(candidate):
+        if verbose:
+            print(f"Loading local dataset parquet at {candidate}")
+        dsd = load_dataset("parquet", data_files={"test": candidate})
+        return dsd["test"]
+    return None
+
+
 def run_pass_at_1(
     cfg: EvalConfig, out_path: Optional[str] = None, verbose: bool = False
 ) -> Dict[str, Any]:
-    _configure_hf_timeouts()
-    split = _load_humaneval_with_retries(
-        cfg.dataset_repo, cfg.dataset_subset, cfg.dataset_retries, verbose
-    )
+    # Prefer local dataset if present
+    split = _load_local_dataset_if_available(cfg.dataset_path, verbose)
+    if split is None:
+        _configure_hf_timeouts()
+        split = _load_humaneval_with_retries(
+            cfg.dataset_repo, cfg.dataset_subset, cfg.dataset_retries, verbose
+        )
 
     # Build an iterable over tasks honoring optional max_problems across Dataset or streaming
     iterator: Iterable[Any]
@@ -107,7 +130,6 @@ def run_pass_at_1(
         model=cfg.model,
         temperature=cfg.temperature,
         max_new_tokens=cfg.max_new_tokens,
-        provider=cfg.provider,
     )
     agent_cfg = AgentConfig(
         max_iters=cfg.max_iters,
