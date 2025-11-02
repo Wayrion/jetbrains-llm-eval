@@ -4,8 +4,10 @@ import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Dict, Any, Optional, Iterable, cast
+from typing import Dict, Any, Optional, Iterable, cast, List
 from itertools import islice
+import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor
 
 from datasets import load_dataset
 
@@ -24,6 +26,58 @@ class EvalConfig:
     dataset_repo: str = os.environ.get("DATASET_REPO", "bigcode/humanevalpack")
     dataset_subset: str = os.environ.get("DATASET_SUBSET", "python")
     dataset_retries: int = int(os.environ.get("DATASET_RETRIES", "3"))
+    workers: int = int(os.environ.get("WORKERS", "1"))
+
+
+# Globals initialized per worker process
+_WORKER_GRAPH = None
+_WORKER_LLM = None
+_WORKER_CFG: Optional[AgentConfig] = None
+
+
+def _worker_init(
+    model: str, temperature: float, max_new_tokens: int, max_iters: int
+) -> None:
+    # Initialize one model and compiled graph per process; avoid HF tokenizers fork warnings
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+    global _WORKER_GRAPH, _WORKER_LLM, _WORKER_CFG
+    _WORKER_LLM = HFChatModel(
+        model=model, temperature=temperature, max_new_tokens=max_new_tokens
+    )
+    _WORKER_GRAPH = build_graph().compile()
+    _WORKER_CFG = AgentConfig(
+        max_iters=max_iters, temperature=temperature, max_new_tokens=max_new_tokens
+    )
+
+
+def _worker_eval(job: Dict[str, Any]) -> Dict[str, Any]:
+    assert (
+        _WORKER_GRAPH is not None
+        and _WORKER_LLM is not None
+        and _WORKER_CFG is not None
+    )
+    state = {
+        "llm": _WORKER_LLM,
+        "config": _WORKER_CFG,
+        "prompt": job["prompt"],
+        "tests": job["tests"],
+        "entry_point": job["entry_point"],
+        "iters": 0,
+    }
+    t0 = time.time()
+    out_state = _WORKER_GRAPH.invoke(state)
+    dt = time.time() - t0
+    last = out_state.get("last_result", {})
+    passed = bool(last.get("passed"))
+    return {
+        "task_id": job.get("task_id"),
+        "passed": passed,
+        "exit_code": last.get("exit_code"),
+        "stderr": last.get("stderr"),
+        "stdout": last.get("stdout"),
+        "runtime_sec": dt,
+        "completion": out_state.get("final_code") or out_state.get("code"),
+    }
 
 
 def extract_fields(sample: Dict[str, Any]) -> Dict[str, str]:
@@ -42,6 +96,8 @@ def _configure_hf_timeouts() -> None:
     os.environ.setdefault("HF_HUB_HTTP_TIMEOUT", "60")
     # Enable parallel/optimized transfer if available
     os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
+    # Avoid tokenizer parallelism fork warnings when we fork to sandbox or workers
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 
 def _load_humaneval_with_retries(repo: str, subset: str, retries: int, verbose: bool):
@@ -124,59 +180,95 @@ def run_pass_at_1(
     else:
         iterator = cast(Iterable[Any], split)
 
-    # Build agent graph and config
-    graph = build_graph().compile()
-    llm = HFChatModel(
-        model=cfg.model,
-        temperature=cfg.temperature,
-        max_new_tokens=cfg.max_new_tokens,
-    )
-    agent_cfg = AgentConfig(
-        max_iters=cfg.max_iters,
-        temperature=cfg.temperature,
-        max_new_tokens=cfg.max_new_tokens,
-    )
+    # Build a plain list of jobs for potential parallel execution
+    jobs: List[Dict[str, Any]] = []
+    if hasattr(split, "__iter__"):
+        for idx, sample in enumerate(iterator):
+            meta = extract_fields(sample)
+            task_id = sample.get("task_id") or sample.get("name") or idx
+            jobs.append(
+                {
+                    "task_id": task_id,
+                    "prompt": meta["prompt"],
+                    "tests": meta["tests"],
+                    "entry_point": meta["entry_point"],
+                }
+            )
+    else:
+        # Shouldn't happen, but keep a safe default
+        pass
 
-    results = []
+    results: List[Dict[str, Any]] = []
     n_pass = 0
 
-    n_processed = 0
-    for idx, sample in enumerate(iterator):
-        meta = extract_fields(sample)
+    if cfg.workers and cfg.workers > 1:
+        # Use spawn to avoid tokenizer fork issues
+        ctx = mp.get_context("spawn")
         if verbose:
-            print(f"[{idx}] task_id={sample.get('task_id') or sample.get('name')}")
-        state = {
-            "llm": llm,
-            "config": agent_cfg,
-            "prompt": meta["prompt"],
-            "tests": meta["tests"],
-            "entry_point": meta["entry_point"],
-            "iters": 0,
-        }
-        t0 = time.time()
-        out_state = graph.invoke(state)
-        dt = time.time() - t0
-        last = out_state.get("last_result", {})
-        passed = bool(last.get("passed"))
-        n_pass += 1 if passed else 0
-        result = {
-            "task_id": sample.get("task_id") or sample.get("name") or idx,
-            "passed": passed,
-            "exit_code": last.get("exit_code"),
-            "stderr": last.get("stderr"),
-            "stdout": last.get("stdout"),
-            "runtime_sec": dt,
-            "completion": out_state.get("final_code") or out_state.get("code"),
-        }
-        results.append(result)
-        if verbose:
-            print("  passed=", passed, "time=", round(dt, 2), "s")
-        n_processed += 1
+            print(f"Running in parallel with {cfg.workers} workers…")
+        with ProcessPoolExecutor(
+            max_workers=cfg.workers,
+            mp_context=ctx,
+            initializer=_worker_init,
+            initargs=(cfg.model, cfg.temperature, cfg.max_new_tokens, cfg.max_iters),
+        ) as ex:
+            # Preserve order using map
+            for j, res in zip(jobs, ex.map(_worker_eval, jobs)):
+                results.append(res)
+                n_pass += 1 if res.get("passed") else 0
+                if verbose:
+                    print(
+                        f"[{j['task_id']}] passed={res.get('passed')} time=",
+                        round(res.get("runtime_sec", 0.0), 2),
+                        "s",
+                    )
+    else:
+        # Sequential path (original behavior)
+        graph = build_graph().compile()
+        llm = HFChatModel(
+            model=cfg.model,
+            temperature=cfg.temperature,
+            max_new_tokens=cfg.max_new_tokens,
+        )
+        agent_cfg = AgentConfig(
+            max_iters=cfg.max_iters,
+            temperature=cfg.temperature,
+            max_new_tokens=cfg.max_new_tokens,
+        )
+        for j in jobs:
+            if verbose:
+                print(f"[{j['task_id']}] task_id={j['task_id']}")
+            state = {
+                "llm": llm,
+                "config": agent_cfg,
+                "prompt": j["prompt"],
+                "tests": j["tests"],
+                "entry_point": j["entry_point"],
+                "iters": 0,
+            }
+            t0 = time.time()
+            out_state = graph.invoke(state)
+            dt = time.time() - t0
+            last = out_state.get("last_result", {})
+            passed = bool(last.get("passed"))
+            n_pass += 1 if passed else 0
+            res = {
+                "task_id": j["task_id"],
+                "passed": passed,
+                "exit_code": last.get("exit_code"),
+                "stderr": last.get("stderr"),
+                "stdout": last.get("stdout"),
+                "runtime_sec": dt,
+                "completion": out_state.get("final_code") or out_state.get("code"),
+            }
+            results.append(res)
+            if verbose:
+                print("  passed=", passed, "time=", round(dt, 2), "s")
 
     if estimated_total is not None:
         total = int(estimated_total)
     else:
-        total = n_processed
+        total = len(results)
     pass_at_1 = n_pass / total if total > 0 else 0.0
 
     if out_path:

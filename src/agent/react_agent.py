@@ -1,12 +1,26 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Any, List
+from typing import Dict, Any, List, TypedDict, NotRequired
 
 from langgraph.graph import StateGraph, END
 
 from .llm import HFChatModel
 from .sandbox import run_python_with_tests
+
+
+class AgentState(TypedDict):
+    llm: HFChatModel
+    config: "AgentConfig"
+    prompt: str
+    tests: str
+    entry_point: str
+    iters: int
+    history: NotRequired[List[Dict[str, str]]]
+    code: NotRequired[str]
+    last_result: NotRequired[Dict[str, Any]]
+    final_code: NotRequired[str]
+    done: NotRequired[bool]
 
 
 @dataclass
@@ -25,7 +39,7 @@ def _system_prompt() -> str:
     )
 
 
-def propose(state: Dict[str, Any]) -> Dict[str, Any]:
+def propose(state: AgentState) -> Dict[str, Any]:
     llm: HFChatModel = state["llm"]
     question: str = state["prompt"]
     history: List[Dict[str, str]] = state.get("history", [])
@@ -34,7 +48,8 @@ def propose(state: Dict[str, Any]) -> Dict[str, Any]:
     messages += history
     messages.append({"role": "user", "content": question})
 
-    completion = llm.invoke(messages, stop=["```"])
+    # Let the model return a full fenced code block; don't stop at ``` which would truncate the code
+    completion = llm.invoke(messages)
 
     # Extract python code block if model included fences; fallback to raw text
     code = completion
@@ -49,8 +64,8 @@ def propose(state: Dict[str, Any]) -> Dict[str, Any]:
     return {"code": code}
 
 
-def execute(state: Dict[str, Any]) -> Dict[str, Any]:
-    code: str = state["code"]
+def execute(state: AgentState) -> Dict[str, Any]:
+    code: str = state.get("code", "")
     tests: str = state["tests"]
     entry_point: str = state["entry_point"]
 
@@ -58,11 +73,11 @@ def execute(state: Dict[str, Any]) -> Dict[str, Any]:
     return {"last_result": result}
 
 
-def reflect(state: Dict[str, Any]) -> Dict[str, Any]:
+def reflect(state: AgentState) -> Dict[str, Any]:
     llm: HFChatModel = state["llm"]
-    result: Dict[str, Any] = state["last_result"]
+    result: Dict[str, Any] = state.get("last_result", {})
     question: str = state["prompt"]
-    prev_code: str = state["code"]
+    prev_code: str = state.get("code", "")
 
     if result.get("passed"):
         return {"final_code": prev_code, "done": True}
@@ -84,7 +99,8 @@ def reflect(state: Dict[str, Any]) -> Dict[str, Any]:
             ),
         },
     ]
-    completion = llm.invoke(messages, stop=["```"])
+    # Do not truncate at fences; we want the full corrected code block
+    completion = llm.invoke(messages)
     code = completion
     if "```" in completion:
         parts = completion.split("```")
@@ -98,7 +114,7 @@ def reflect(state: Dict[str, Any]) -> Dict[str, Any]:
     return {"code": code, "iters": state.get("iters", 0) + 1}
 
 
-def should_continue(state: Dict[str, Any]) -> str:
+def should_continue(state: AgentState) -> str:
     if state.get("done"):
         return END
     iters = state.get("iters", 0)
@@ -112,7 +128,7 @@ def should_continue(state: Dict[str, Any]) -> str:
 
 
 def build_graph() -> StateGraph:
-    graph = StateGraph(dict)
+    graph = StateGraph(AgentState)
     graph.add_node("propose", propose)
     graph.add_node("execute", execute)
     graph.add_node("reflect", reflect)

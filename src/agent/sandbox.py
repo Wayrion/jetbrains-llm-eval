@@ -46,8 +46,12 @@ def _build_runner_script(entry_point: str) -> str:
             if not hasattr(cand, "{entry_point}"):
                 raise AttributeError("Entry point '{entry_point}' not found in candidate")
 
+            # Inject entry point symbol into test globals so tests can reference it directly
+            fn = getattr(cand, "{entry_point}")
+            init_globals = {{"{entry_point}": fn, "candidate": cand}}
+
             # Execute tests module which will raise on failure
-            runpy.run_module("tests", run_name="__main__")
+            runpy.run_module("tests", init_globals=init_globals, run_name="__main__")
         """
     )
 
