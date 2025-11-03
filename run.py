@@ -6,15 +6,60 @@ import json
 import os
 import multiprocessing as mp
 import logging
+import sys
 
 from src.eval.humaneval_eval import EvalConfig, run_pass_at_1
 
 
+def _setup_logging() -> None:
+    """Configure root logger with (optional) ANSI colors, default INFO level."""
+    # Avoid duplicate handlers if called more than once
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+
+    # Remove existing handlers to take control of formatting
+    while root.handlers:
+        root.handlers.pop()
+
+    class ColorFormatter(logging.Formatter):
+        RESET = "\x1b[0m"
+        BOLD = "\x1b[1m"
+        COLORS = {
+            logging.DEBUG: "\x1b[34m",  # blue
+            logging.INFO: "\x1b[32m",  # green
+            logging.WARNING: "\x1b[33m",  # yellow
+            logging.ERROR: "\x1b[31m",  # red
+            logging.CRITICAL: "\x1b[35m",  # magenta
+        }
+
+        def __init__(self, fmt: str, use_color: bool = True) -> None:
+            super().__init__(fmt)
+            self.use_color = use_color
+
+        def format(self, record: logging.LogRecord) -> str:
+            msg = super().format(record)
+            if not self.use_color:
+                return msg
+            color = self.COLORS.get(record.levelno, "")
+            return f"{color}{msg}{self.RESET}"
+
+    def _supports_color(stream: object) -> bool:
+        return (
+            hasattr(stream, "isatty")
+            and getattr(stream, "isatty")()
+            and os.getenv("NO_COLOR") is None
+        )
+
+    handler = logging.StreamHandler(stream=sys.stderr)
+    fmt = "%(asctime)s %(levelname)s %(message)s"
+    color = _supports_color(handler.stream)
+    handler.setFormatter(ColorFormatter(fmt, use_color=color))
+    root.addHandler(handler)
+
+
 def main() -> None:
-    # Configure logging once, default INFO
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
-    )
+    # Configure logging once, default INFO, with green INFO output
+    _setup_logging()
     # Align transformers verbosity with request
     os.environ.setdefault("TRANSFORMERS_VERBOSITY", "info")
     p = argparse.ArgumentParser(description="Run ReAct agent on humanevalpack (pass@1)")
