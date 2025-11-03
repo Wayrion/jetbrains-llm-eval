@@ -114,6 +114,23 @@ class HFChatModel:
                 # Drop unsupported keys silently to avoid transformer warnings
                 gen_kwargs.pop(k, None)
 
+        if not do_sample:
+            # When running greedy decoding, reset sampling-only knobs to their neutral
+            # defaults. Newer Transformers versions validate configs and warn if settings
+            # such as temperature/top_p/top_k are customized while sampling is disabled.
+            greedy_defaults = {
+                "temperature": 1.0,
+                "top_p": 1.0,
+                "top_k": 50,
+                "min_p": None,
+                "typical_p": 1.0,
+                "epsilon_cutoff": 0.0,
+                "eta_cutoff": 0.0,
+            }
+            for attr, default in greedy_defaults.items():
+                if hasattr(gen_config, attr):
+                    setattr(gen_config, attr, default)
+
         gen_outputs = self._hf_model.generate(
             **inputs,
             generation_config=gen_config,
