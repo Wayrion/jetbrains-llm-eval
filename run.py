@@ -27,15 +27,6 @@ def main() -> None:
         help="Max problems to evaluate",
     )
     p.add_argument(
-        "--iters", dest="max_iters", type=int, default=3, help="Max agent iterations"
-    )
-    p.add_argument(
-        "--provider",
-        type=str,
-        default=None,
-        help="HF inference provider (e.g. 'hf-inference' or 'tgi'); defaults to env HF_PROVIDER or 'hf-inference'",
-    )
-    p.add_argument(
         "--dataset-path",
         type=str,
         default=None,
@@ -62,10 +53,8 @@ def main() -> None:
     cfg = EvalConfig(
         model=args.model,
         max_problems=args.max_problems,
-        max_iters=args.max_iters,
         temperature=0.0,
         max_new_tokens=512,
-        provider=args.provider or None,
         dataset_path=args.dataset_path or None,
         workers=max(1, int(args.workers)),
     )

@@ -18,10 +18,8 @@ from ..agent import HFChatModel, build_graph, AgentConfig
 class EvalConfig:
     model: str = os.environ.get("HF_MODEL", "Qwen/Qwen2.5-0.5B-Instruct")
     max_problems: Optional[int] = None
-    max_iters: int = 3
     temperature: float = 0.0
     max_new_tokens: int = 512
-    provider: Optional[str] = os.environ.get("HF_PROVIDER") or "hf-inference"
     dataset_path: Optional[str] = os.environ.get("DATASET_PATH")
     dataset_repo: str = os.environ.get("DATASET_REPO", "bigcode/humanevalpack")
     dataset_subset: str = os.environ.get("DATASET_SUBSET", "python")
@@ -35,9 +33,7 @@ _WORKER_LLM = None
 _WORKER_CFG: Optional[AgentConfig] = None
 
 
-def _worker_init(
-    model: str, temperature: float, max_new_tokens: int, max_iters: int
-) -> None:
+def _worker_init(model: str, temperature: float, max_new_tokens: int) -> None:
     # Initialize one model and compiled graph per process; avoid HF tokenizers fork warnings
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     global _WORKER_GRAPH, _WORKER_LLM, _WORKER_CFG
@@ -45,9 +41,7 @@ def _worker_init(
         model=model, temperature=temperature, max_new_tokens=max_new_tokens
     )
     _WORKER_GRAPH = build_graph().compile()
-    _WORKER_CFG = AgentConfig(
-        max_iters=max_iters, temperature=temperature, max_new_tokens=max_new_tokens
-    )
+    _WORKER_CFG = AgentConfig(temperature=temperature, max_new_tokens=max_new_tokens)
 
 
 def _worker_eval(job: Dict[str, Any]) -> Dict[str, Any]:
@@ -219,7 +213,7 @@ def run_pass_at_1(
             max_workers=cfg.workers,
             mp_context=ctx,
             initializer=_worker_init,
-            initargs=(cfg.model, cfg.temperature, cfg.max_new_tokens, cfg.max_iters),
+            initargs=(cfg.model, cfg.temperature, cfg.max_new_tokens),
         ) as ex:
             # Preserve order using map
             for j, res in zip(jobs, ex.map(_worker_eval, jobs)):
@@ -240,7 +234,6 @@ def run_pass_at_1(
             max_new_tokens=cfg.max_new_tokens,
         )
         agent_cfg = AgentConfig(
-            max_iters=cfg.max_iters,
             temperature=cfg.temperature,
             max_new_tokens=cfg.max_new_tokens,
         )

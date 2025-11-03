@@ -65,7 +65,6 @@ This prints a summary JSON with `pass@1` and writes per-problem results to `resu
 - `--model` Hugging Face model id to load locally via Transformers. Short aliases are also accepted, e.g. `qwen3-0.6b` -> `Qwen/Qwen2.5-0.5B-Instruct`.
 - `--dataset-path` Optional path to a local parquet (e.g., `./dataset/humaneval_py.parquet`). If not provided, we'll attempt to fetch `bigcode/humanevalpack` with retries.
 - `--max` limit number of problems (default: all in split)
-- `--iters` max agent self-reflection iterations (default 3)
 - `--out` path to JSONL output with per-task results
 - `--verbose` progress logs
  - `--workers` number of parallel worker processes (default 1). Each worker loads its own model; ensure you have enough RAM/VRAM.
@@ -87,8 +86,9 @@ Agent contract
 - For stricter isolation in production, consider a containerized runner (Docker/Firecracker) or OS-level sandboxes
 
 Pass@1 metric
-- We generate a single candidate per task; pass@1 is the fraction of tasks whose tests pass on the first attempt
-- Configure deterministic generation by keeping `temperature=0.0`
+- We generate a single candidate per task; pass@1 is the fraction of tasks whose tests pass on the first attempt.
+- The agent may perform a small number of internal propose/reflect cycles to fix code, but only the first candidate trajectory per task counts toward pass@1.
+- Keep `temperature=0.0` (default) for deterministic generation.
 
 Reproducing results
 Run the provided command above. Your score will depend on the model and the subset size. For a quick smoke test, try `--max 5`.
