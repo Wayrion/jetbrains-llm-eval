@@ -51,6 +51,8 @@ This prints a summary JSON with `pass@1` and writes per-problem results to `resu
 
 ## CLI options
 - `--iters` optional number of repair loops after the first execute (default 0 = strict pass@1). Set to a small value like 2–3 to allow propose→execute→reflect cycles.
+- `--verbose` print per-task progress and timing without enabling library debug logs.
+- `--debug` enable full debug logging (includes verbose output plus library debug logs).
 
 Environment variables
 

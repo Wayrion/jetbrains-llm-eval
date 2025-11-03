@@ -10,11 +10,11 @@ import sys
 from src.eval.humaneval_eval import EvalConfig, run_pass_at_1
 
 
-def _setup_logging() -> None:
+def _setup_logging(verbose: bool = False, debug: bool = False) -> None:
     """Configure root logger with (optional) ANSI colors, default INFO level."""
     # Avoid duplicate handlers if called more than once
     root = logging.getLogger()
-    root.setLevel(logging.INFO)
+    root.setLevel(logging.DEBUG if debug else logging.INFO)
 
     # Remove existing handlers to take control of formatting
     while root.handlers:
@@ -55,13 +55,24 @@ def _setup_logging() -> None:
     handler.setFormatter(ColorFormatter(fmt, use_color=color))
     root.addHandler(handler)
 
+    if not verbose and not debug:
+        logging.getLogger("datasets").setLevel(logging.WARNING)
+        logging.getLogger("transformers").setLevel(logging.WARNING)
+
 
 def main() -> None:
     # Configure logging once, default INFO, with green INFO output
-    _setup_logging()
+    parser_preview = argparse.ArgumentParser(add_help=False)
+    parser_preview.add_argument("--verbose", action="store_true")
+    parser_preview.add_argument("--debug", action="store_true")
+    preview_args, _ = parser_preview.parse_known_args()
+    _setup_logging(verbose=preview_args.verbose, debug=preview_args.debug)
     # Align transformers verbosity with request
     os.environ.setdefault("TRANSFORMERS_VERBOSITY", "info")
-    p = argparse.ArgumentParser(description="Run ReAct agent on humanevalpack (pass@1)")
+    p = argparse.ArgumentParser(
+        parents=[parser_preview],
+        description="Run ReAct agent on humanevalpack (pass@1)",
+    )
     p.add_argument(
         "--model",
         type=str,
@@ -91,8 +102,12 @@ def main() -> None:
         help="Path to local humaneval parquet (e.g., ./dataset/humaneval_py.parquet). If provided, bypasses HF Hub.",
     )
     p.add_argument("--out", type=str, default=None, help="Path to JSONL results output")
-    p.add_argument("--verbose", action="store_true", help="Verbose output")
     args = p.parse_args()
+    args.verbose = getattr(args, "verbose", False) or preview_args.verbose
+    args.debug = getattr(args, "debug", False) or preview_args.debug
+
+    # Reconfigure logging if debug flag introduced after preview parse
+    _setup_logging(verbose=args.verbose, debug=args.debug)
 
     # Reduce HF tokenizers fork warnings and use spawn for safety
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
