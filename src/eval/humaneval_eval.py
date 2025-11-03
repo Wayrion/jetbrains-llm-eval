@@ -4,6 +4,7 @@ import json
 import os
 import time
 from dataclasses import dataclass
+import logging
 from typing import Dict, Any, Optional, Iterable, cast, List
 from itertools import islice
 import multiprocessing as mp
@@ -25,6 +26,8 @@ class EvalConfig:
     dataset_subset: str = os.environ.get("DATASET_SUBSET", "python")
     dataset_retries: int = int(os.environ.get("DATASET_RETRIES", "3"))
     workers: int = int(os.environ.get("WORKERS", "1"))
+    # Optional reflection/repair loops after the first execute; 0 = strict pass@1
+    iters: int = int(os.environ.get("ITERS", "0"))
 
 
 # Globals initialized per worker process
@@ -33,7 +36,9 @@ _WORKER_LLM = None
 _WORKER_CFG: Optional[AgentConfig] = None
 
 
-def _worker_init(model: str, temperature: float, max_new_tokens: int) -> None:
+def _worker_init(
+    model: str, temperature: float, max_new_tokens: int, iters: int
+) -> None:
     # Initialize one model and compiled graph per process; avoid HF tokenizers fork warnings
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     global _WORKER_GRAPH, _WORKER_LLM, _WORKER_CFG
@@ -41,7 +46,11 @@ def _worker_init(model: str, temperature: float, max_new_tokens: int) -> None:
         model=model, temperature=temperature, max_new_tokens=max_new_tokens
     )
     _WORKER_GRAPH = build_graph().compile()
-    _WORKER_CFG = AgentConfig(temperature=temperature, max_new_tokens=max_new_tokens)
+    _WORKER_CFG = AgentConfig(
+        max_iters=max(0, int(iters)),
+        temperature=temperature,
+        max_new_tokens=max_new_tokens,
+    )
 
 
 def _worker_eval(job: Dict[str, Any]) -> Dict[str, Any]:
@@ -79,6 +88,16 @@ def _worker_eval(job: Dict[str, Any]) -> Dict[str, Any]:
             k: float(metrics.get(k, 0.0))
             for k in ("t_propose_sec", "t_execute_sec", "t_reflect_sec")
         }
+        # Optional token usage metrics if present
+        token_keys = [
+            "propose_prompt_tokens",
+            "propose_completion_tokens",
+            "reflect_prompt_tokens",
+            "reflect_completion_tokens",
+        ]
+        token_usage = {k: int(metrics.get(k, 0)) for k in token_keys if k in metrics}
+        if token_usage:
+            res["token_usage"] = token_usage
     res["iters"] = int(out_state.get("iters", 0))
     return res
 
@@ -112,19 +131,18 @@ def _load_humaneval_with_retries(repo: str, subset: str, retries: int, verbose: 
             return ds["test"]
         except Exception as e:  # noqa: BLE001 - user environment/network issues
             last_err = e
-            if verbose:
-                print(f"Dataset load attempt {attempt} failed: {e}")
+            logging.info("Dataset load attempt %s failed: %s", attempt, e)
             time.sleep(min(2**attempt, 8))
 
     # Fallback: try streaming the test split directly to avoid large metadata calls
     try:
-        if verbose:
-            print("Falling back to streaming dataset split due to repeated timeouts…")
+        logging.info(
+            "Falling back to streaming dataset split due to repeated timeouts…"
+        )
         split = load_dataset(repo, subset, split="test", streaming=True)
         return split
     except Exception as e:  # noqa: BLE001
-        if verbose:
-            print(f"Streaming fallback failed: {e}")
+        logging.info("Streaming fallback failed: %s", e)
         # Re-raise last error from non-streaming attempts if available
         raise (last_err or e)
 
@@ -141,8 +159,7 @@ def _load_local_dataset_if_available(path: Optional[str], verbose: bool):
     if not candidate:
         candidate = os.path.join(_project_root(), "dataset", "humaneval_py.parquet")
     if candidate and os.path.exists(candidate):
-        if verbose:
-            print(f"Loading local dataset parquet at {candidate}")
+        logging.info("Loading local dataset parquet at %s", candidate)
         dsd = load_dataset("parquet", data_files={"test": candidate})
         return dsd["test"]
     return None
@@ -151,6 +168,7 @@ def _load_local_dataset_if_available(path: Optional[str], verbose: bool):
 def run_pass_at_1(
     cfg: EvalConfig, out_path: Optional[str] = None, verbose: bool = False
 ) -> Dict[str, Any]:
+    logging.info("Starting Humaneval pass@1 evaluation…")
     # Prefer local dataset if present
     split = _load_local_dataset_if_available(cfg.dataset_path, verbose)
     if split is None:
@@ -207,24 +225,23 @@ def run_pass_at_1(
     if cfg.workers and cfg.workers > 1:
         # Use spawn to avoid tokenizer fork issues
         ctx = mp.get_context("spawn")
-        if verbose:
-            print(f"Running in parallel with {cfg.workers} workers…")
+        logging.info("Running in parallel with %s workers…", cfg.workers)
         with ProcessPoolExecutor(
             max_workers=cfg.workers,
             mp_context=ctx,
             initializer=_worker_init,
-            initargs=(cfg.model, cfg.temperature, cfg.max_new_tokens),
+            initargs=(cfg.model, cfg.temperature, cfg.max_new_tokens, cfg.iters),
         ) as ex:
             # Preserve order using map
             for j, res in zip(jobs, ex.map(_worker_eval, jobs)):
                 results.append(res)
                 n_pass += 1 if res.get("passed") else 0
-                if verbose:
-                    print(
-                        f"[{j['task_id']}] passed={res.get('passed')} time=",
-                        round(res.get("runtime_sec", 0.0), 2),
-                        "s",
-                    )
+                logging.info(
+                    "[%s] passed=%s time=%.2fs",
+                    j["task_id"],
+                    res.get("passed"),
+                    float(res.get("runtime_sec", 0.0)),
+                )
     else:
         # Sequential path (original behavior)
         graph = build_graph().compile()
@@ -234,12 +251,12 @@ def run_pass_at_1(
             max_new_tokens=cfg.max_new_tokens,
         )
         agent_cfg = AgentConfig(
+            max_iters=max(0, int(cfg.iters)),
             temperature=cfg.temperature,
             max_new_tokens=cfg.max_new_tokens,
         )
         for j in jobs:
-            if verbose:
-                print(f"[{j['task_id']}] task_id={j['task_id']}")
+            logging.info("[%s] starting", j["task_id"])
             state = {
                 "llm": llm,
                 "config": agent_cfg,
@@ -269,31 +286,30 @@ def run_pass_at_1(
                     k: float(metrics.get(k, 0.0))
                     for k in ("t_propose_sec", "t_execute_sec", "t_reflect_sec")
                 }
+                token_keys = [
+                    "propose_prompt_tokens",
+                    "propose_completion_tokens",
+                    "reflect_prompt_tokens",
+                    "reflect_completion_tokens",
+                ]
+                token_usage = {
+                    k: int(metrics.get(k, 0)) for k in token_keys if k in metrics
+                }
+                if token_usage:
+                    res["token_usage"] = token_usage
             res["iters"] = int(out_state.get("iters", 0))
             results.append(res)
-            if verbose:
-                parts = [
-                    f"  passed={passed}",
-                    f"time={round(dt, 2)}s",
-                ]
-                if metrics:
-                    parts.append(
-                        "breakdown="
-                        + str(
-                            {
-                                "propose": round(
-                                    float(metrics.get("t_propose_sec", 0.0)), 2
-                                ),
-                                "execute": round(
-                                    float(metrics.get("t_execute_sec", 0.0)), 2
-                                ),
-                                "reflect": round(
-                                    float(metrics.get("t_reflect_sec", 0.0)), 2
-                                ),
-                            }
-                        )
-                    )
-                print(" ".join(parts))
+            logging.info(
+                "[%s] passed=%s time=%.2fs breakdown=%s",
+                j["task_id"],
+                passed,
+                round(dt, 2),
+                {
+                    "propose": round(float(metrics.get("t_propose_sec", 0.0)), 2),
+                    "execute": round(float(metrics.get("t_execute_sec", 0.0)), 2),
+                    "reflect": round(float(metrics.get("t_reflect_sec", 0.0)), 2),
+                },
+            )
 
     if estimated_total is not None:
         total = int(estimated_total)
@@ -306,6 +322,5 @@ def run_pass_at_1(
             for r in results:
                 f.write(json.dumps(r) + "\n")
 
-    if verbose:
-        print(f"pass@1 = {pass_at_1:.4f} ({n_pass}/{total})")
+    logging.info("pass@1 = %.4f (%s/%s)", pass_at_1, n_pass, total)
     return {"pass@1": pass_at_1, "n": total, "results": results}

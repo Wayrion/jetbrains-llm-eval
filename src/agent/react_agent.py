@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Any, List, TypedDict, NotRequired
 import time
+import logging
 
 from langgraph.graph import StateGraph, END
 
@@ -27,7 +28,8 @@ class AgentState(TypedDict):
 
 @dataclass
 class AgentConfig:
-    max_iters: int = 3
+    # Strict pass@1 by default: no additional reflection/execute loops
+    max_iters: int = 0
     temperature: float = 0.0
     max_new_tokens: int = 512
 
@@ -56,6 +58,15 @@ def propose(state: AgentState) -> Dict[str, Any]:
     completion = llm.invoke(messages)
     dt = time.time() - t0
     metrics["t_propose_sec"] = metrics.get("t_propose_sec", 0.0) + dt
+    # Token usage metrics
+    usage = getattr(llm, "last_usage", {})
+    if usage:
+        metrics["propose_prompt_tokens"] = metrics.get(
+            "propose_prompt_tokens", 0
+        ) + int(usage.get("prompt_tokens", 0))
+        metrics["propose_completion_tokens"] = metrics.get(
+            "propose_completion_tokens", 0
+        ) + int(usage.get("completion_tokens", 0))
 
     # Extract python code block if model included fences; fallback to raw text
     code = completion
@@ -80,6 +91,12 @@ def execute(state: AgentState) -> Dict[str, Any]:
     result = run_python_with_tests(code, tests, entry_point, timeout_s=10)
     dt = time.time() - t0
     metrics["t_execute_sec"] = metrics.get("t_execute_sec", 0.0) + dt
+    logging.info(
+        "Sandbox run: passed=%s exit=%s time=%.2fs",
+        bool(result.get("passed")),
+        result.get("exit_code"),
+        dt,
+    )
     return {"last_result": result, "metrics": metrics}
 
 
@@ -89,6 +106,10 @@ def reflect(state: AgentState) -> Dict[str, Any]:
     question: str = state["prompt"]
     prev_code: str = state.get("code", "")
     metrics: Dict[str, Any] = dict(state.get("metrics", {}))
+
+    # Strict pass@1 mode: if no iterations allowed, end immediately after first execute
+    if state["config"].max_iters <= 0:
+        return {"final_code": prev_code, "done": True}
 
     if result.get("passed"):
         return {"final_code": prev_code, "done": True}
@@ -115,6 +136,14 @@ def reflect(state: AgentState) -> Dict[str, Any]:
     completion = llm.invoke(messages)
     dt = time.time() - t0
     metrics["t_reflect_sec"] = metrics.get("t_reflect_sec", 0.0) + dt
+    usage = getattr(llm, "last_usage", {})
+    if usage:
+        metrics["reflect_prompt_tokens"] = metrics.get(
+            "reflect_prompt_tokens", 0
+        ) + int(usage.get("prompt_tokens", 0))
+        metrics["reflect_completion_tokens"] = metrics.get(
+            "reflect_completion_tokens", 0
+        ) + int(usage.get("completion_tokens", 0))
     code = completion
     if "```" in completion:
         parts = completion.split("```")

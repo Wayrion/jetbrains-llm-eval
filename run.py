@@ -5,11 +5,18 @@ import json
 
 import os
 import multiprocessing as mp
+import logging
 
 from src.eval.humaneval_eval import EvalConfig, run_pass_at_1
 
 
 def main() -> None:
+    # Configure logging once, default INFO
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
+    )
+    # Align transformers verbosity with request
+    os.environ.setdefault("TRANSFORMERS_VERBOSITY", "info")
     p = argparse.ArgumentParser(description="Run ReAct agent on humanevalpack (pass@1)")
     p.add_argument(
         "--model",
@@ -25,6 +32,13 @@ def main() -> None:
         type=int,
         default=None,
         help="Max problems to evaluate",
+    )
+    p.add_argument(
+        "--iters",
+        dest="iters",
+        type=int,
+        default=0,
+        help="Optional number of repair loops after first execute (0 = strict pass@1)",
     )
     p.add_argument(
         "--dataset-path",
@@ -56,12 +70,13 @@ def main() -> None:
         temperature=0.0,
         max_new_tokens=512,
         dataset_path=args.dataset_path or None,
+        iters=max(0, int(args.iters)),
         workers=max(1, int(args.workers)),
     )
     res = run_pass_at_1(cfg, out_path=args.out, verbose=args.verbose)
 
     summary = {k: v for k, v in res.items() if k != "results"}
-    print(json.dumps(summary, indent=2))
+    logging.info("Summary: %s", json.dumps(summary))
 
 
 if __name__ == "__main__":

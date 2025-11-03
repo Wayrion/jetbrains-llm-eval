@@ -62,16 +62,10 @@ uv run run.py \
 This prints a summary JSON with `pass@1` and writes per-problem results to `results.jsonl`.
 
 ## CLI options
-- `--model` Hugging Face model id to load locally via Transformers. Short aliases are also accepted, e.g. `qwen3-0.6b` -> `Qwen/Qwen2.5-0.5B-Instruct`.
-- `--dataset-path` Optional path to a local parquet (e.g., `./dataset/humaneval_py.parquet`). If not provided, we'll attempt to fetch `bigcode/humanevalpack` with retries.
-- `--max` limit number of problems (default: all in split)
-- `--out` path to JSONL output with per-task results
-- `--verbose` progress logs
- - `--workers` number of parallel worker processes (default 1). Each worker loads its own model; ensure you have enough RAM/VRAM.
+- `--iters` optional number of repair loops after the first execute (default 0 = strict pass@1). Set to a small value like 2–3 to allow propose→execute→reflect cycles.
+- `--workers` number of parallel worker processes (default 1). Each worker loads its own model; ensure you have enough RAM/VRAM.
 
 Environment variables
-- `WORKERS` sets default workers when `--workers` is omitted (e.g., `WORKERS=4`).
-- `TOKENIZERS_PARALLELISM` is set to `false` automatically to avoid fork warnings; you generally don’t need to set it.
 
 Agent contract
 - Input: `prompt` from humanevalpack, `tests`, `entry_point`
@@ -87,7 +81,7 @@ Agent contract
 
 Pass@1 metric
 - We generate a single candidate per task; pass@1 is the fraction of tasks whose tests pass on the first attempt.
-- The agent may perform a small number of internal propose/reflect cycles to fix code, but only the first candidate trajectory per task counts toward pass@1.
+- Strict pass@1 by default: the agent runs a single sandbox execution per task (no iterative repair). To experiment with iterative repair, pass `--iters N` to allow up to N propose→execute→reflect cycles.
 - Keep `temperature=0.0` (default) for deterministic generation.
 
 Reproducing results
