@@ -1,9 +1,0 @@
-datasets
-transformers
-# Install an appropriate torch build for your platform separately if needed
-torch
-requests
-tqdm
-python-dotenv
-langgraph
-langchain-core
