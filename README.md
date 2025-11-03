@@ -36,25 +36,13 @@ Place it at `./dataset/humaneval_py.parquet` or pass a custom path with `--datas
 
 3) Run the evaluation (local model + local dataset)
 
-Sequential run (baseline):
+Sequential execution:
 
 ```bash
 uv run run.py \
 	--model qwen3-0.6b \
 	--dataset-path ./dataset/humaneval_py.parquet \
 	--max 50 \
-	--out results.jsonl \
-	--verbose
-```
-
-Parallel run (faster on multi-core; adjust workers to your CPU/GPU memory):
-
-```bash
-uv run run.py \
-	--model qwen3-0.6b \
-	--dataset-path ./dataset/humaneval_py.parquet \
-	--max 50 \
-	--workers 4 \
 	--out results.jsonl \
 	--verbose
 ```
@@ -63,7 +51,6 @@ This prints a summary JSON with `pass@1` and writes per-problem results to `resu
 
 ## CLI options
 - `--iters` optional number of repair loops after the first execute (default 0 = strict pass@1). Set to a small value like 2–3 to allow propose→execute→reflect cycles.
-- `--workers` number of parallel worker processes (default 1). Each worker loads its own model; ensure you have enough RAM/VRAM.
 
 Environment variables
 
@@ -91,14 +78,13 @@ Troubleshooting
 - Transformers can't find torch: install a platform-appropriate torch build (see https://pytorch.org/get-started/locally/)
 - CUDA not available: generation falls back to CPU; consider smaller models or set `device_map=auto` (default) to use GPU if present
 - Dataset timeouts from HF Hub: use `--dataset-path ./dataset/humaneval_py.parquet` to bypass network
- - Parallel runs OOM/VRAM issues: lower `--workers`, reduce `--max_new_tokens` (via code), or switch to a smaller model.
 
 ## Project structure
 
 - `src/agent/llm.py` — lightweight local Transformers chat wrapper, supports short model aliases (e.g., `qwen3-0.6b`).
 - `src/agent/sandbox.py` — sandboxed subprocess runner with CPU/memory/timeout and network-block; injects the required entry point into the test module.
 - `src/agent/react_agent.py` — LangGraph ReAct loop: propose -> execute -> reflect. The assistant emits a single fenced code block; we extract and execute it.
-- `src/eval/humaneval_eval.py` — evaluation harness for HumanevalPack, sequential or parallel, producing JSONL results and pass@1.
+- `src/eval/humaneval_eval.py` — evaluation harness for HumanevalPack, sequential execution producing JSONL results and pass@1.
 - `run.py` — CLI wrapper for end-to-end runs.
 
 ## Metrics and logs

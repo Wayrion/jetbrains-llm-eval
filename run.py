@@ -4,7 +4,6 @@ import argparse
 import json
 
 import os
-import multiprocessing as mp
 import logging
 import sys
 
@@ -93,21 +92,10 @@ def main() -> None:
     )
     p.add_argument("--out", type=str, default=None, help="Path to JSONL results output")
     p.add_argument("--verbose", action="store_true", help="Verbose output")
-    p.add_argument(
-        "--workers",
-        type=int,
-        default=int(os.environ.get("WORKERS", "1")),
-        help="Number of parallel workers (processes)",
-    )
     args = p.parse_args()
 
     # Reduce HF tokenizers fork warnings and use spawn for safety
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-    try:
-        mp.set_start_method("spawn", force=True)
-    except RuntimeError:
-        # Start method already set; ignore
-        pass
 
     cfg = EvalConfig(
         model=args.model,
@@ -116,7 +104,6 @@ def main() -> None:
         max_new_tokens=512,
         dataset_path=args.dataset_path or None,
         iters=max(0, int(args.iters)),
-        workers=max(1, int(args.workers)),
     )
     res = run_pass_at_1(cfg, out_path=args.out, verbose=args.verbose)
 
