@@ -80,17 +80,19 @@ sudo -E env PATH="$PATH" VIRTUAL_ENV="$VIRTUAL_ENV" uv run run.py \
 	--verbose \
 	--sandbox docker
 ```
+
 > [!WARNING]
 > Docker sandboxing requires elevated privileges and pulls the `python:3.13-slim` base image on first run, so expect the initial invocation to take longer.
+
 ```bash
 # Re-generate the visualization from an existing JSONL results file
 uv run python src/visualize_results.py \
 	--input results/results.jsonl \
 	--output results/humaneval.png
 ```
+
 > [!CAUTION]
 > Large checkpoints can exceed local GPU memory. Prefer smaller aliases like `qwen3-0.6b` or rely on CPU (`device_map=auto`) when memory is tight.
-
 
 ## Sample visualizations
 
