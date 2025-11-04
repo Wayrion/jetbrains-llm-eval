@@ -18,6 +18,9 @@ Requirements
 - transformers, torch (install a torch build suitable for your platform)
 - datasets
 
+> [!NOTE]
+> Install a platform-specific torch build (CPU, CUDA, or ROCm) before running the CLI so transformers can locate the correct backend.
+
 ## Quick start
 
 1) Create and activate a virtual environment and install deps
@@ -34,6 +37,9 @@ uv pip install -r requirements.txt
 
 Place it at `./dataset/humaneval_py.parquet` or pass a custom path with `--dataset-path`.
 
+> [!TIP]
+> Keeping a local parquet prevents repeated HF Hub downloads and shortens start-up time during rapid benchmarking.
+
 3) Run the evaluation (local model + local dataset)
 
 Execution:
@@ -49,6 +55,9 @@ uv run run.py \
 ```
 
 This prints a summary JSON with `pass@1`, writes per-problem results to `results.jsonl`, and renders a companion PNG chart with the same stem.
+
+> [!IMPORTANT]
+> The `--visualize` flag saves `results/results.png`. Re-run the command after each evaluation to keep the chart aligned with the latest JSONL metrics.
 
 Additional recipes:
 
@@ -71,16 +80,34 @@ sudo -E env PATH="$PATH" VIRTUAL_ENV="$VIRTUAL_ENV" uv run run.py \
 	--verbose \
 	--sandbox docker
 
+> [!WARNING]
+> Docker sandboxing requires elevated privileges and pulls the `python:3.13-slim` base image on first run, so expect the initial invocation to take longer.
+
 # Re-generate the visualization from an existing JSONL results file
 uv run python src/visualize_results.py \
 	--input results/results.jsonl \
 	--output results/humaneval.png
+
+> [!CAUTION]
+> Large checkpoints can exceed local GPU memory. Prefer smaller aliases like `qwen3-0.6b` or rely on CPU (`device_map=auto`) when memory is tight.
 ```
+
+## Sample visualizations
+
+> [!TIP]
+> Regenerate charts after each benchmark so screenshots reflect the latest JSONL metrics.
+
+![Humaneval evaluation snapshot](results/results.png)
+
+![Standalone visualization refresh](results/humaneval.png)
 
 ## CLI options
 - `--iters` optional number of repair loops after the first execute (default 0 = strict pass@1). Set to a small value like 2–3 to allow propose→execute→reflect cycles.
 - `--sandbox {process,docker}` select the execution backend (`process` is the default in-process sandbox, `docker` launches a Python container using the `python:3.13-slim` image).
 - `--resume` resume from an existing JSONL results file, skipping tasks that already have recorded outcomes.
+
+> [!NOTE]
+> Resumed runs preserve the original model metadata so regenerated charts stay in sync even if you switch alias names between sessions.
 
 Environment variables
 
