@@ -89,12 +89,13 @@ def plot_results(
     total_runtime = sum(runtime)
 
     fig.text(
-        0.02,
+        0.5,
         0.96,
         "JetBrains LLM Eval Snapshot",
         color="#FFFFFF",
         fontsize=18,
         weight="bold",
+        ha="center",
     )
     fig.text(
         0.02,
