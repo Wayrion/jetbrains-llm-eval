@@ -56,10 +56,7 @@ uv run run.py \
 
 This prints a summary JSON with `pass@1`, writes per-problem results to `results.jsonl`, and renders a companion PNG chart with the same stem.
 
-> [!IMPORTANT]
-> The `--visualize` flag saves `results/results.png`. Re-run the command after each evaluation to keep the chart aligned with the latest JSONL metrics.
-
-Additional recipes:
+CLI run with different options:
 
 ```bash
 # Evaluate against a synthetic/bogus parquet and emit a matching PNG snapshot
@@ -79,20 +76,13 @@ sudo -E env PATH="$PATH" VIRTUAL_ENV="$VIRTUAL_ENV" uv run run.py \
 	--out ./results/tmp_results.jsonl \
 	--verbose \
 	--sandbox docker
-```
 
-> [!WARNING]
-> Docker sandboxing requires elevated privileges and pulls the `python:3.13-slim` base image on first run, so expect the initial invocation to take longer.
-
-```bash
 # Re-generate the visualization from an existing JSONL results file
 uv run python src/visualize_results.py \
 	--input results/results.jsonl \
 	--output results/humaneval.png
 ```
 
-> [!CAUTION]
-> Large checkpoints can exceed local GPU memory. Prefer smaller aliases like `qwen3-0.6b` or rely on CPU (`device_map=auto`) when memory is tight.
 
 ## Sample visualizations
 
@@ -155,4 +145,4 @@ Per-task result objects (in `results.jsonl` and the verbose printout) include:
 	- `t_execute_sec` — cumulative time executing tests in the sandbox across iterations.
 	- `t_reflect_sec` — cumulative time spent in LLM reflection cycles. Should be 0 if iters is set to 0 (Only the first trajectory is used)
 
-When running with `--verbose`, a compact breakdown is also shown per task.
+When running with `--verbose`, a compact breakdown is also shown per task. Running with `--debug` also provides additional information that can be helpful for troubleshooting
