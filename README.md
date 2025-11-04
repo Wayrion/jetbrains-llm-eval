@@ -36,14 +36,15 @@ Place it at `./dataset/humaneval_py.parquet` or pass a custom path with `--datas
 
 3) Run the evaluation (local model + local dataset)
 
-Sequential execution:
+Execution:
 
 ```bash
 uv run run.py \
 	--model qwen3-0.6b \
 	--dataset-path ./dataset/humaneval_py.parquet \
-	--max 50 \
-	--out results.jsonl \
+	--max 5 \
+	--out ./results/results.jsonl \
+	--iters 0 \
 	--verbose
 ```
 
@@ -72,7 +73,7 @@ Pass@1 metric
 - Keep `temperature=0.0` (default) for deterministic generation.
 
 Reproducing results
-Run the provided command above. Your score will depend on the model and the subset size. For a quick smoke test, try `--max 5`.
+Run the provided command above. Your score will depend on the model and the subset size. For a quick test, try `--max 5`.
 
 Troubleshooting
 - Transformers can't find torch: install a platform-appropriate torch build (see https://pytorch.org/get-started/locally/)
@@ -96,6 +97,6 @@ Per-task result objects (in `results.jsonl` and the verbose printout) now includ
 - `timings_sec` — per-phase breakdown (when available):
 	- `t_propose_sec` — time spent in the initial LLM proposal.
 	- `t_execute_sec` — cumulative time executing tests in the sandbox across iterations.
-	- `t_reflect_sec` — cumulative time spent in LLM reflection cycles.
+	- `t_reflect_sec` — cumulative time spent in LLM reflection cycles. Should be 0 if iters is set to 0 (Only the first trajectory is used)
 
 When running with `--verbose`, a compact breakdown is also shown per task.
