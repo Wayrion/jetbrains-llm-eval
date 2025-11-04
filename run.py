@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
-
-import os
 import logging
+import os
+import subprocess
 import sys
+from pathlib import Path
 
 from src.eval.humaneval_eval import EvalConfig, run_pass_at_1
 
@@ -148,6 +149,11 @@ def main() -> None:
             " while 'docker' launches a Python container."
         ),
     )
+    p.add_argument(
+        "--visualize",
+        action="store_true",
+        help="Render a PNG summary using src.visualize_results once results are saved.",
+    )
     args = p.parse_args()
     args.verbose = getattr(args, "verbose", False) or preview_args.verbose
     args.debug = getattr(args, "debug", False) or preview_args.debug
@@ -158,6 +164,13 @@ def main() -> None:
 
     # Reduce HF tokenizers fork warnings and use spawn for safety
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+    output_path: Path | None = Path(args.out) if args.out else None
+    if args.visualize and output_path is None:
+        output_path = Path("results") / "results.jsonl"
+        args.out = str(output_path)
+
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
 
     cfg = EvalConfig(
         model=args.model,
@@ -172,6 +185,38 @@ def main() -> None:
 
     summary = {k: v for k, v in res.items() if k != "results"}
     logging.info("Summary: %s", json.dumps(summary))
+    if args.visualize:
+        if output_path is None:
+            logging.error("Visualization requested but no results path was determined.")
+            return
+        if not output_path.exists():
+            logging.error(
+                "Visualization requested but results file %s was not created.",
+                output_path,
+            )
+            return
+        png_path = (
+            output_path.with_suffix(".png")
+            if output_path.suffix
+            else Path(f"{output_path}.png")
+        )
+        try:
+            subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "src.visualize_results",
+                    "--input",
+                    str(output_path),
+                    "--output",
+                    str(png_path),
+                ],
+                check=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            logging.error("Visualization command failed with %s", exc.returncode)
+        else:
+            logging.info("Visualization saved to %s", png_path)
 
 
 if __name__ == "__main__":
