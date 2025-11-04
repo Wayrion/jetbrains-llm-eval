@@ -1,7 +1,7 @@
 import argparse
 import json
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 import matplotlib.pyplot as plt
 
@@ -30,11 +30,40 @@ def extract_metrics(
     return task_ids, passed, runtime
 
 
+def infer_model_name(results: List[dict]) -> Optional[str]:
+    resolved: Optional[str] = None
+    alias: Optional[str] = None
+    for entry in results:
+        if alias is None:
+            alias_raw = entry.get("model_alias")
+            if isinstance(alias_raw, str) and alias_raw.strip():
+                alias = alias_raw.strip()
+        for key in ("model", "model_id", "model_name"):
+            value = entry.get(key)
+            if isinstance(value, str) and value.strip():
+                if resolved is None:
+                    resolved = value.strip()
+                break
+        else:
+            metadata = entry.get("metadata")
+            if isinstance(metadata, dict):
+                for key in ("model", "model_id", "model_name"):
+                    value = metadata.get(key)
+                    if isinstance(value, str) and value.strip():
+                        if resolved is None:
+                            resolved = value.strip()
+                        break
+    if resolved and alias and alias != resolved:
+        return f"{alias} -> {resolved}"
+    return resolved or alias
+
+
 def plot_results(
     task_ids: List[str],
     passed: List[bool],
     runtime: List[float],
     output: Path,
+    model_name: Optional[str] = None,
 ) -> None:
     color_cycle = build_color_cycle(len(task_ids))
     pass_colors = ["#21D789" if flag else "#FF318C" for flag in passed]
@@ -56,7 +85,10 @@ def plot_results(
         task_ids, runtime, color=color_cycle, edgecolor="none", alpha=0.95
     )
     ax_runtime.set_xlabel("Total runtime (sec)", color="#F5F5F5")
-    ax_runtime.set_title("Run Performance", color="#FFFFFF", pad=15, fontsize=16)
+    title = "Run Performance"
+    if model_name:
+        title = f"{title} - {model_name}"
+    ax_runtime.set_title(title, color="#FFFFFF", pad=15, fontsize=16)
     ax_runtime.invert_yaxis()
     ax_runtime.grid(
         True, axis="x", linestyle="--", linewidth=0.6, color="#2E2E2E", alpha=0.8
@@ -87,6 +119,13 @@ def plot_results(
 
     pass_rate = sum(passed) / len(passed) if passed else 0.0
     total_runtime = sum(runtime)
+    model_label = model_name if model_name else "not provided"
+    details_lines = [
+        f"Model: {model_label}",
+        f"Tasks evaluated: {len(task_ids)}",
+        f"Pass rate: {pass_rate:.0%}",
+        f"Total runtime: {total_runtime:.2f}s",
+    ]
 
     fig.text(
         0.5,
@@ -100,7 +139,7 @@ def plot_results(
     fig.text(
         0.02,
         0.91,
-        f"Pass rate: {pass_rate:.0%}\nTotal runtime: {total_runtime:.2f}s",
+        "\n".join(details_lines),
         color="#3DDCFF",
         fontsize=12,
         linespacing=1.3,
@@ -137,6 +176,12 @@ def main() -> None:
         default=Path("results/bogus_results.png"),
         help="Where to save the rendered visualization",
     )
+    parser.add_argument(
+        "--model-name",
+        type=str,
+        default=None,
+        help="Optional model identifier to annotate on the visualization",
+    )
     args = parser.parse_args()
 
     results = load_results(args.input)
@@ -144,7 +189,8 @@ def main() -> None:
         raise SystemExit(f"No results found in {args.input}")
 
     task_ids, passed, runtime = extract_metrics(results)
-    plot_results(task_ids, passed, runtime, output=args.output)
+    model_name = args.model_name or infer_model_name(results)
+    plot_results(task_ids, passed, runtime, output=args.output, model_name=model_name)
     print(f"Visualization saved to {args.output}")
 
 

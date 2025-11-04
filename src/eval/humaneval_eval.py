@@ -11,6 +11,7 @@ from itertools import islice
 from datasets import load_dataset
 
 from ..agent import HFChatModel, build_graph, AgentConfig
+from ..agent.llm import _normalize_model_id
 
 
 @dataclass
@@ -173,6 +174,7 @@ def run_pass_at_1(
         if pending_jobs
         else None
     )
+    resolved_model_id = llm.model if llm is not None else _normalize_model_id(cfg.model)
     agent_cfg = (
         AgentConfig(
             max_iters=max(0, int(cfg.iters)),
@@ -199,7 +201,15 @@ def run_pass_at_1(
     for j in jobs:
         task_key = str(j["task_id"])
         if task_key in existing_map:
-            res = existing_map[task_key]
+            res = dict(existing_map[task_key])
+            if "model" not in res:
+                res["model"] = resolved_model_id
+            if (
+                cfg.model
+                and res.get("model_alias") is None
+                and cfg.model != res.get("model")
+            ):
+                res["model_alias"] = cfg.model
             logging.info(
                 "[%s] skipping (resume) passed=%s", j["task_id"], res.get("passed")
             )
@@ -230,6 +240,10 @@ def run_pass_at_1(
             "runtime_sec": dt,
             "completion": out_state.get("final_code") or out_state.get("code"),
         }
+        # Preserve normalized/alias pair so downstream tooling can label plots precisely
+        res["model"] = resolved_model_id
+        if cfg.model and cfg.model != resolved_model_id:
+            res["model_alias"] = cfg.model
         metrics = out_state.get("metrics") or {}
         if metrics:
             res["timings_sec"] = {
@@ -290,4 +304,12 @@ def run_pass_at_1(
                 f.write(json.dumps(r) + "\n")
 
     logging.info("pass@1 = %.4f (%s/%s)", pass_at_1, n_pass, total)
-    return {"pass@1": pass_at_1, "n": total, "results": ordered_results}
+    payload: Dict[str, Any] = {
+        "pass@1": pass_at_1,
+        "n": total,
+        "model": resolved_model_id,
+        "results": ordered_results,
+    }
+    if cfg.model and cfg.model != resolved_model_id:
+        payload["model_alias"] = cfg.model
+    return payload

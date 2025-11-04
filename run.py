@@ -248,6 +248,12 @@ def main() -> None:
             else Path(f"{output_path}.png")
         )
         try:
+            model_label = res.get("model") or cfg.model
+            alias = res.get("model_alias")
+            if alias and alias != model_label:
+                model_for_plot = f"{alias} -> {model_label}"
+            else:
+                model_for_plot = model_label
             subprocess.run(
                 [
                     sys.executable,
@@ -257,6 +263,8 @@ def main() -> None:
                     str(output_path),
                     "--output",
                     str(png_path),
+                    "--model-name",
+                    model_for_plot,
                 ],
                 check=True,
             )
