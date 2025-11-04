@@ -42,14 +42,40 @@ Execution:
 uv run run.py \
 	--model qwen3-0.6b \
 	--dataset-path ./dataset/humaneval_py.parquet \
-	--max 5 \
+	--max 10 \
 	--out ./results/results.jsonl \
-	--iters 0 \
-	--sandbox process \
-	--verbose
+	--verbose \
+	--visualize
 ```
 
-This prints a summary JSON with `pass@1` and writes per-problem results to `results.jsonl`.
+This prints a summary JSON with `pass@1`, writes per-problem results to `results.jsonl`, and renders a companion PNG chart with the same stem.
+
+Additional recipes:
+
+```bash
+# Evaluate against a synthetic/bogus parquet and emit a matching PNG snapshot
+uv run run.py \
+	--model qwen3-0.6b \
+	--dataset-path ./dataset/bogus.parquet \
+	--max 5 \
+	--out ./results/bogus_results.jsonl \
+	--verbose \
+	--visualize
+
+# Run a minimal docker-sandboxed check with environment forwarding (requires sudo)
+sudo -E env PATH="$PATH" VIRTUAL_ENV="$VIRTUAL_ENV" uv run run.py \
+	--model qwen3-0.6b \
+	--dataset-path ./dataset/humaneval_py.parquet \
+	--max 1 \
+	--out ./results/tmp_results.jsonl \
+	--verbose \
+	--sandbox docker
+
+# Re-generate the visualization from an existing JSONL results file
+uv run python src/visualize_results.py \
+	--input results/results.jsonl \
+	--output results/humaneval.png
+```
 
 ## CLI options
 - `--iters` optional number of repair loops after the first execute (default 0 = strict pass@1). Set to a small value like 2–3 to allow propose→execute→reflect cycles.
@@ -94,7 +120,7 @@ Troubleshooting
 
 ## Metrics and logs
 
-Per-task result objects (in `results.jsonl` and the verbose printout) now include:
+Per-task result objects (in `results.jsonl` and the verbose printout) include:
 
 - `runtime_sec` — total wall time for the task (agent + sandbox).
 - `iters` — number of agent reflection iterations actually used.
