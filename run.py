@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any, Dict, List
 
 from src.eval.humaneval_eval import EvalConfig, run_pass_at_1
 
@@ -154,6 +155,13 @@ def main() -> None:
         action="store_true",
         help="Render a PNG summary using src.visualize_results once results are saved.",
     )
+    p.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Resume from an existing results JSONL file instead of rerunning completed tasks."
+        ),
+    )
     args = p.parse_args()
     args.verbose = getattr(args, "verbose", False) or preview_args.verbose
     args.debug = getattr(args, "debug", False) or preview_args.debug
@@ -165,12 +173,46 @@ def main() -> None:
     # Reduce HF tokenizers fork warnings and use spawn for safety
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     output_path: Path | None = Path(args.out) if args.out else None
+
+    if args.resume and output_path is None:
+        output_path = Path("results") / "results.jsonl"
+        args.out = str(output_path)
+        logging.info("Resume requested without --out; defaulting to %s", output_path)
     if args.visualize and output_path is None:
         output_path = Path("results") / "results.jsonl"
         args.out = str(output_path)
 
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    existing_results: List[Dict[str, Any]] = []
+    if args.resume:
+        if output_path is None:
+            logging.error("Resume requested but no output path is available.")
+            sys.exit(1)
+        if output_path.exists():
+            try:
+                with open(output_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        existing_results.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                logging.error(
+                    "Failed to parse existing results at %s: %s", output_path, exc
+                )
+                sys.exit(1)
+            logging.info(
+                "Loaded %s completed task(s) from %s for resume.",
+                len(existing_results),
+                output_path,
+            )
+        else:
+            logging.info(
+                "Resume requested but %s does not exist; starting a fresh run.",
+                output_path,
+            )
 
     cfg = EvalConfig(
         model=args.model,
@@ -181,7 +223,12 @@ def main() -> None:
         iters=max(0, int(args.iters)),
         sandbox=args.sandbox,
     )
-    res = run_pass_at_1(cfg, out_path=args.out, verbose=args.verbose)
+    res = run_pass_at_1(
+        cfg,
+        out_path=args.out,
+        verbose=args.verbose,
+        existing_results=existing_results if args.resume else None,
+    )
 
     summary = {k: v for k, v in res.items() if k != "results"}
     logging.info("Summary: %s", json.dumps(summary))

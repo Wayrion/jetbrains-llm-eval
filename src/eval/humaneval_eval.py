@@ -93,7 +93,10 @@ def _load_local_dataset_if_available(path: Optional[str], verbose: bool):
 
 
 def run_pass_at_1(
-    cfg: EvalConfig, out_path: Optional[str] = None, verbose: bool = False
+    cfg: EvalConfig,
+    out_path: Optional[str] = None,
+    verbose: bool = False,
+    existing_results: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     logging.info("Starting Humaneval pass@1 evaluation…")
     logging.info("Sandbox mode: %s", cfg.sandbox)
@@ -147,23 +150,63 @@ def run_pass_at_1(
         # Shouldn't happen, but keep a safe default
         pass
 
-    results: List[Dict[str, Any]] = []
-    n_pass = 0
+    existing_map: Dict[str, Dict[str, Any]] = {}
+    if existing_results:
+        for item in existing_results:
+            task_id = item.get("task_id")
+            if task_id is None:
+                continue
+            existing_map[str(task_id)] = item
 
-    graph = build_graph().compile()
-    llm = HFChatModel(
-        model=cfg.model,
-        temperature=cfg.temperature,
-        max_new_tokens=cfg.max_new_tokens,
+    results_map: Dict[str, Dict[str, Any]] = {}
+
+    # Determine which jobs still need to run
+    pending_jobs = [job for job in jobs if str(job["task_id"]) not in existing_map]
+
+    graph = build_graph().compile() if pending_jobs else None
+    llm = (
+        HFChatModel(
+            model=cfg.model,
+            temperature=cfg.temperature,
+            max_new_tokens=cfg.max_new_tokens,
+        )
+        if pending_jobs
+        else None
     )
-    agent_cfg = AgentConfig(
-        max_iters=max(0, int(cfg.iters)),
-        temperature=cfg.temperature,
-        max_new_tokens=cfg.max_new_tokens,
-        sandbox_mode=cfg.sandbox,
-        sandbox_timeout=max(1, int(cfg.sandbox_timeout)),
+    agent_cfg = (
+        AgentConfig(
+            max_iters=max(0, int(cfg.iters)),
+            temperature=cfg.temperature,
+            max_new_tokens=cfg.max_new_tokens,
+            sandbox_mode=cfg.sandbox,
+            sandbox_timeout=max(1, int(cfg.sandbox_timeout)),
+        )
+        if pending_jobs
+        else None
     )
+
+    if pending_jobs and existing_map:
+        logging.info(
+            "Resuming run: %s task(s) will be executed, %s already completed.",
+            len(pending_jobs),
+            len(existing_map),
+        )
+    elif pending_jobs:
+        logging.info("Starting fresh run with %s task(s).", len(pending_jobs))
+    elif existing_map:
+        logging.info("All tasks already completed in existing results; nothing to do.")
+
     for j in jobs:
+        task_key = str(j["task_id"])
+        if task_key in existing_map:
+            res = existing_map[task_key]
+            logging.info(
+                "[%s] skipping (resume) passed=%s", j["task_id"], res.get("passed")
+            )
+            results_map[task_key] = res
+            continue
+
+        assert graph is not None and llm is not None and agent_cfg is not None
         logging.info("[%s] starting", j["task_id"])
         state = {
             "llm": llm,
@@ -178,7 +221,6 @@ def run_pass_at_1(
         dt = time.time() - t0
         last = out_state.get("last_result", {})
         passed = bool(last.get("passed"))
-        n_pass += 1 if passed else 0
         res = {
             "task_id": j["task_id"],
             "passed": passed,
@@ -206,7 +248,7 @@ def run_pass_at_1(
             if token_usage:
                 res["token_usage"] = token_usage
         res["iters"] = int(out_state.get("iters", 0))
-        results.append(res)
+        results_map[task_key] = res
         logging.info(
             "[%s] passed=%s time=%.2fs breakdown=%s",
             j["task_id"],
@@ -219,16 +261,33 @@ def run_pass_at_1(
             },
         )
 
+    # Assemble ordered results following the dataset order
+    ordered_results: List[Dict[str, Any]] = []
+    missing_task_ids: List[Any] = []
+    for j in jobs:
+        task_key = str(j["task_id"])
+        if task_key in results_map:
+            ordered_results.append(results_map[task_key])
+        else:
+            missing_task_ids.append(j["task_id"])
+
+    if missing_task_ids:
+        logging.error(
+            "Missing results for task ids: %s", ", ".join(map(str, missing_task_ids))
+        )
+
+    n_pass = sum(1 for r in ordered_results if r.get("passed"))
+
     if estimated_total is not None:
         total = int(estimated_total)
     else:
-        total = len(results)
+        total = len(ordered_results)
     pass_at_1 = n_pass / total if total > 0 else 0.0
 
     if out_path:
         with open(out_path, "w", encoding="utf-8") as f:
-            for r in results:
+            for r in ordered_results:
                 f.write(json.dumps(r) + "\n")
 
     logging.info("pass@1 = %.4f (%s/%s)", pass_at_1, n_pass, total)
-    return {"pass@1": pass_at_1, "n": total, "results": results}
+    return {"pass@1": pass_at_1, "n": total, "results": ordered_results}

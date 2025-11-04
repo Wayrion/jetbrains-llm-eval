@@ -80,6 +80,7 @@ uv run python src/visualize_results.py \
 ## CLI options
 - `--iters` optional number of repair loops after the first execute (default 0 = strict pass@1). Set to a small value like 2–3 to allow propose→execute→reflect cycles.
 - `--sandbox {process,docker}` select the execution backend (`process` is the default in-process sandbox, `docker` launches a Python container using the `python:3.13-slim` image).
+- `--resume` resume from an existing JSONL results file, skipping tasks that already have recorded outcomes.
 
 Environment variables
 
