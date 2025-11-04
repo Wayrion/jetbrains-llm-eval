@@ -94,9 +94,6 @@ uv run python src/visualize_results.py \
 - `--sandbox {process,docker}` select the execution backend (`process` is the default in-process sandbox, `docker` launches a Python container using the `python:3.13-slim` image).
 - `--resume` resume from an existing JSONL results file, skipping tasks that already have recorded outcomes.
 
-> [!NOTE]
-> Resumed runs preserve the original model metadata so regenerated charts stay in sync even if you switch alias names between sessions.
-
 Environment variables
 
 Agent contract
