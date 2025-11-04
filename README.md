@@ -96,12 +96,8 @@ uv run python src/visualize_results.py \
 
 ## Sample visualizations
 
-> [!TIP]
-> Regenerate charts after each benchmark so screenshots reflect the latest JSONL metrics.
-
 ![Humaneval evaluation snapshot](results/results.png)
 
-![Standalone visualization refresh](results/humaneval.png)
 
 ## CLI options
 - `--iters` optional number of repair loops after the first execute (default 0 = strict pass@1). Set to a small value like 2–3 to allow propose→execute→reflect cycles.
