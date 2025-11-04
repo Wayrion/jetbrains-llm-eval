@@ -52,6 +52,7 @@ This prints a summary JSON with `pass@1` and writes per-problem results to `resu
 
 ## CLI options
 - `--iters` optional number of repair loops after the first execute (default 0 = strict pass@1). Set to a small value like 2–3 to allow propose→execute→reflect cycles.
+- `--sandbox {process,docker}` select the execution backend (`process` is the default in-process sandbox, `docker` launches a Python container using the `python:3.13-slim` image).
 
 Environment variables
 
@@ -66,6 +67,7 @@ Agent contract
 - Disables network by overriding `socket` creation in the child process
 - Restricts file open calls to the sandbox folder
 - For stricter isolation in production, consider a containerized runner (Docker/Firecracker) or OS-level sandboxes
+- Pass `--sandbox docker` to run the candidate and tests inside a short-lived Docker container (requires Docker; honors `SANDBOX_DOCKER_IMAGE`, `SANDBOX_DOCKER_CPUS`, `SANDBOX_DOCKER_MEMORY`).
 
 Pass@1 metric
 - We generate a single candidate per task; pass@1 is the fraction of tasks whose tests pass on the first attempt.

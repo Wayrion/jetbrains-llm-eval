@@ -25,6 +25,8 @@ class EvalConfig:
     dataset_retries: int = int(os.environ.get("DATASET_RETRIES", "3"))
     # Optional reflection/repair loops after the first execute; 0 = strict pass@1
     iters: int = int(os.environ.get("ITERS", "0"))
+    sandbox: str = os.environ.get("SANDBOX_MODE", "process")
+    sandbox_timeout: int = int(os.environ.get("SANDBOX_TIMEOUT", "10"))
 
 
 def extract_fields(sample: Dict[str, Any]) -> Dict[str, str]:
@@ -94,6 +96,7 @@ def run_pass_at_1(
     cfg: EvalConfig, out_path: Optional[str] = None, verbose: bool = False
 ) -> Dict[str, Any]:
     logging.info("Starting Humaneval pass@1 evaluation…")
+    logging.info("Sandbox mode: %s", cfg.sandbox)
     # Prefer local dataset if present
     split = _load_local_dataset_if_available(cfg.dataset_path, verbose)
     if split is None:
@@ -157,6 +160,8 @@ def run_pass_at_1(
         max_iters=max(0, int(cfg.iters)),
         temperature=cfg.temperature,
         max_new_tokens=cfg.max_new_tokens,
+        sandbox_mode=cfg.sandbox,
+        sandbox_timeout=max(1, int(cfg.sandbox_timeout)),
     )
     for j in jobs:
         logging.info("[%s] starting", j["task_id"])

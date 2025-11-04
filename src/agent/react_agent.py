@@ -8,7 +8,7 @@ import logging
 from langgraph.graph import StateGraph, END
 
 from .llm import HFChatModel
-from .sandbox import run_python_with_tests
+from .sandbox import get_sandbox_runner
 
 
 class AgentState(TypedDict):
@@ -32,6 +32,8 @@ class AgentConfig:
     max_iters: int = 0
     temperature: float = 0.0
     max_new_tokens: int = 512
+    sandbox_mode: str = "process"
+    sandbox_timeout: int = 30
 
 
 def _system_prompt() -> str:
@@ -86,9 +88,11 @@ def execute(state: AgentState) -> Dict[str, Any]:
     tests: str = state["tests"]
     entry_point: str = state["entry_point"]
     metrics: Dict[str, Any] = dict(state.get("metrics", {}))
+    cfg: AgentConfig = state["config"]
 
     t0 = time.time()
-    result = run_python_with_tests(code, tests, entry_point, timeout_s=10)
+    runner = get_sandbox_runner(cfg.sandbox_mode)
+    result = runner(code, tests, entry_point, cfg.sandbox_timeout)
     dt = time.time() - t0
     metrics["t_execute_sec"] = metrics.get("t_execute_sec", 0.0) + dt
     logging.info(

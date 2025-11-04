@@ -138,6 +138,16 @@ def main() -> None:
         help="Path to local humaneval parquet (e.g., ./dataset/humaneval_py.parquet). If provided, bypasses HF Hub.",
     )
     p.add_argument("--out", type=str, default=None, help="Path to JSONL results output")
+    p.add_argument(
+        "--sandbox",
+        type=lambda s: s.lower(),
+        choices=["process", "docker"],
+        default="process",
+        help=(
+            "Sandbox backend for executing tests. 'process' uses the built-in isolated subprocess,"
+            " while 'docker' launches a Python container."
+        ),
+    )
     args = p.parse_args()
     args.verbose = getattr(args, "verbose", False) or preview_args.verbose
     args.debug = getattr(args, "debug", False) or preview_args.debug
@@ -156,6 +166,7 @@ def main() -> None:
         max_new_tokens=512,
         dataset_path=args.dataset_path or None,
         iters=max(0, int(args.iters)),
+        sandbox=args.sandbox,
     )
     res = run_pass_at_1(cfg, out_path=args.out, verbose=args.verbose)
 

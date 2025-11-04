@@ -6,7 +6,12 @@ import textwrap
 import tempfile
 import subprocess
 import resource
-from typing import Dict, Any
+import uuid
+import shutil
+from typing import Dict, Any, Callable
+
+
+SandboxRunner = Callable[[str, str, str, int], Dict[str, Any]]
 
 
 def _build_runner_script(entry_point: str) -> str:
@@ -56,6 +61,22 @@ def _build_runner_script(entry_point: str) -> str:
     )
 
 
+def _prepare_sandbox_payload(
+    tmp_dir: str, candidate_code: str, tests_code: str, entry_point: str
+) -> str:
+    cand_path = os.path.join(tmp_dir, "candidate.py")
+    tests_path = os.path.join(tmp_dir, "tests.py")
+    runner_path = os.path.join(tmp_dir, "runner.py")
+
+    with open(cand_path, "w", encoding="utf-8") as f:
+        f.write(candidate_code)
+    with open(tests_path, "w", encoding="utf-8") as f:
+        f.write(tests_code)
+    with open(runner_path, "w", encoding="utf-8") as f:
+        f.write(_build_runner_script(entry_point))
+    return runner_path
+
+
 def run_python_with_tests(
     candidate_code: str, tests_code: str, entry_point: str, timeout_s: int = 10
 ) -> Dict[str, Any]:
@@ -63,17 +84,9 @@ def run_python_with_tests(
     Execute user code plus tests in an isolated subprocess and capture pass/fail and logs.
     """
     with tempfile.TemporaryDirectory(prefix="sandbox_") as tmp:
-        # Write candidate and tests as modules
-        cand_path = os.path.join(tmp, "candidate.py")
-        tests_path = os.path.join(tmp, "tests.py")
-        runner_path = os.path.join(tmp, "runner.py")
-
-        with open(cand_path, "w", encoding="utf-8") as f:
-            f.write(candidate_code)
-        with open(tests_path, "w", encoding="utf-8") as f:
-            f.write(tests_code)
-        with open(runner_path, "w", encoding="utf-8") as f:
-            f.write(_build_runner_script(entry_point))
+        runner_path = _prepare_sandbox_payload(
+            tmp, candidate_code, tests_code, entry_point
+        )
 
         env = os.environ.copy()
         env["PYTHONPATH"] = tmp
@@ -115,3 +128,117 @@ def run_python_with_tests(
             "stderr": err,
             "exit_code": proc.returncode,
         }
+
+
+def run_python_in_docker(
+    candidate_code: str, tests_code: str, entry_point: str, timeout_s: int = 10
+) -> Dict[str, Any]:
+    """Execute code inside a temporary Python Docker container."""
+
+    docker_bin = os.environ.get("DOCKER_BIN", "docker")
+    if shutil.which(docker_bin) is None:
+        return {
+            "passed": False,
+            "stdout": "",
+            "stderr": f"Docker binary '{docker_bin}' not found",
+            "exit_code": -1,
+        }
+
+    image = os.environ.get("SANDBOX_DOCKER_IMAGE", "python:3.13-slim")
+    cpus = os.environ.get("SANDBOX_DOCKER_CPUS", "1")
+    memory = os.environ.get("SANDBOX_DOCKER_MEMORY", "1g")
+    pids_limit = os.environ.get("SANDBOX_DOCKER_PIDS", "128")
+    container_name = f"sandbox_{uuid.uuid4().hex}"
+
+    with tempfile.TemporaryDirectory(prefix="sandbox_") as tmp:
+        _prepare_sandbox_payload(tmp, candidate_code, tests_code, entry_point)
+
+        cmd = [
+            docker_bin,
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            "--cpus",
+            cpus,
+            "--memory",
+            memory,
+            "--pids-limit",
+            pids_limit,
+            "--security-opt",
+            "no-new-privileges",
+            "--workdir",
+            "/workspace",
+            "--volume",
+            f"{tmp}:/workspace",
+            "--env",
+            "PYTHONPATH=/workspace",
+            "--env",
+            f"SANDBOX_TIMEOUT={timeout_s}",
+            "--env",
+            "PYTHONDONTWRITEBYTECODE=1",
+            "--name",
+            container_name,
+        ]
+
+        if hasattr(os, "getuid") and hasattr(os, "getgid"):
+            cmd.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
+
+        cmd.append(image)
+        cmd.extend(["python", "-I", "-B", "/workspace/runner.py"])
+
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,
+                text=True,
+            )
+        except FileNotFoundError:
+            return {
+                "passed": False,
+                "stdout": "",
+                "stderr": f"Docker binary '{docker_bin}' not found",
+                "exit_code": -1,
+            }
+
+        try:
+            out, err = proc.communicate(timeout=timeout_s + 5)
+        except subprocess.TimeoutExpired:
+            subprocess.run(
+                [docker_bin, "kill", container_name],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            proc.kill()
+            out, err = proc.communicate()
+            return {
+                "passed": False,
+                "stdout": out,
+                "stderr": (err or "") + "\nTimeoutExpired",
+                "exit_code": -1,
+            }
+
+        passed = proc.returncode == 0
+        return {
+            "passed": passed,
+            "stdout": out,
+            "stderr": err,
+            "exit_code": proc.returncode,
+        }
+
+
+_SANDBOX_RUNNERS: Dict[str, SandboxRunner] = {
+    "process": run_python_with_tests,
+    "docker": run_python_in_docker,
+}
+
+
+def get_sandbox_runner(mode: str) -> SandboxRunner:
+    key = (mode or "").lower()
+    if key not in _SANDBOX_RUNNERS:
+        raise ValueError(f"Unknown sandbox mode '{mode}'")
+    return _SANDBOX_RUNNERS[key]
