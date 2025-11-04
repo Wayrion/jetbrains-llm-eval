@@ -60,6 +60,42 @@ def _setup_logging(verbose: bool = False, debug: bool = False) -> None:
         logging.getLogger("transformers").setLevel(logging.WARNING)
 
 
+def _log_cli_settings(
+    args: argparse.Namespace, parser: argparse.ArgumentParser
+) -> None:
+    """Log a table of active CLI settings compared to defaults."""  # type: ignore[override]
+    rows = []
+    for action in parser._actions:
+        if not action.option_strings:
+            continue
+        if action.dest == "help":
+            continue
+        flag = next(
+            (opt for opt in action.option_strings if opt.startswith("--")),
+            action.option_strings[-1],
+        )
+        value = getattr(args, action.dest, action.default)
+        default = action.default
+        rows.append((flag, repr(value), repr(default)))
+
+    rows.sort(key=lambda r: r[0])
+    header = ("Flag", "Value", "Default")
+    widths = [
+        max(len(col), *(len(r[idx]) for r in rows)) if rows else len(col)
+        for idx, col in enumerate(header)
+    ]
+
+    def _fmt_row(cols: tuple[str, str, str]) -> str:
+        return " | ".join(col.ljust(widths[idx]) for idx, col in enumerate(cols))
+
+    lines = [
+        _fmt_row(header),
+        "-+-".join("-" * w for w in widths),
+        *(_fmt_row(r) for r in rows),
+    ]
+    logging.info("CLI settings\n%s", "\n".join(lines))
+
+
 def main() -> None:
     # Configure logging once, default INFO, with green INFO output
     parser_preview = argparse.ArgumentParser(add_help=False)
@@ -108,6 +144,7 @@ def main() -> None:
 
     # Reconfigure logging if debug flag introduced after preview parse
     _setup_logging(verbose=args.verbose, debug=args.debug)
+    _log_cli_settings(args, p)
 
     # Reduce HF tokenizers fork warnings and use spawn for safety
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
