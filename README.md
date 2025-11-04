@@ -45,6 +45,7 @@ uv run run.py \
 	--max 5 \
 	--out ./results/results.jsonl \
 	--iters 0 \
+	--sandbox process \
 	--verbose
 ```
 

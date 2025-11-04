@@ -8,6 +8,8 @@ import subprocess
 import resource
 import uuid
 import shutil
+import shlex
+import logging
 from typing import Dict, Any, Callable
 
 
@@ -135,8 +137,11 @@ def run_python_in_docker(
 ) -> Dict[str, Any]:
     """Execute code inside a temporary Python Docker container."""
 
+    logger = logging.getLogger(__name__)
+
     docker_bin = os.environ.get("DOCKER_BIN", "docker")
     if shutil.which(docker_bin) is None:
+        logger.error("Docker binary '%s' not found in PATH", docker_bin)
         return {
             "passed": False,
             "stdout": "",
@@ -187,6 +192,9 @@ def run_python_in_docker(
         cmd.append(image)
         cmd.extend(["python", "-I", "-B", "/workspace/runner.py"])
 
+        quoted_cmd = " ".join(shlex.quote(part) for part in cmd)
+        logger.debug("Docker sandbox command: %s", quoted_cmd)
+
         try:
             proc = subprocess.Popen(
                 cmd,
@@ -196,6 +204,7 @@ def run_python_in_docker(
                 text=True,
             )
         except FileNotFoundError:
+            logger.error("Docker binary '%s' disappeared during launch", docker_bin)
             return {
                 "passed": False,
                 "stdout": "",
@@ -206,6 +215,11 @@ def run_python_in_docker(
         try:
             out, err = proc.communicate(timeout=timeout_s + 5)
         except subprocess.TimeoutExpired:
+            logger.warning(
+                "Docker sandbox timed out after %ss; killing container %s",
+                timeout_s + 5,
+                container_name,
+            )
             subprocess.run(
                 [docker_bin, "kill", container_name],
                 check=False,
@@ -223,6 +237,23 @@ def run_python_in_docker(
             }
 
         passed = proc.returncode == 0
+        if not passed:
+            err_text = (err or "").strip()
+            logger.error(
+                "Docker sandbox exited with code %s",
+                proc.returncode,
+            )
+            if quoted_cmd:
+                logger.error("Command: %s", quoted_cmd)
+            if err_text:
+                logger.error("Docker stderr:\n%s", err_text)
+            if proc.returncode == 126 or "permission denied" in err_text.lower():
+                logger.error(
+                    "Docker reported a permission error when starting the sandbox. "
+                    "Ensure the current user can access the Docker daemon or set DOCKER_BIN='sudo docker'."
+                )
+        else:
+            logger.debug("Docker sandbox completed successfully")
         return {
             "passed": passed,
             "stdout": out,
