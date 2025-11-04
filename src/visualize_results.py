@@ -23,45 +23,33 @@ def build_color_cycle(count: int) -> List[str]:
 
 def extract_metrics(
     results: List[dict],
-) -> Tuple[List[str], List[bool], List[float], List[float], List[float]]:
+) -> Tuple[List[str], List[bool], List[float]]:
     task_ids = [entry["task_id"].split("/")[-1] for entry in results]
     passed = [bool(entry.get("passed")) for entry in results]
     runtime = [float(entry.get("runtime_sec", 0.0)) for entry in results]
-    propose = [
-        float(entry.get("timings_sec", {}).get("t_propose_sec", 0.0))
-        for entry in results
-    ]
-    execute = [
-        float(entry.get("timings_sec", {}).get("t_execute_sec", 0.0))
-        for entry in results
-    ]
-    return task_ids, passed, runtime, propose, execute
+    return task_ids, passed, runtime
 
 
 def plot_results(
     task_ids: List[str],
     passed: List[bool],
     runtime: List[float],
-    propose: List[float],
-    execute: List[float],
     output: Path,
 ) -> None:
     color_cycle = build_color_cycle(len(task_ids))
     pass_colors = ["#21D789" if flag else "#FF318C" for flag in passed]
 
-    fig, (ax_runtime, ax_timings) = plt.subplots(
-        2,
+    fig, ax_runtime = plt.subplots(
         1,
-        figsize=(12, 8),
-        gridspec_kw={"height_ratios": [2.2, 1]},
+        1,
+        figsize=(12, 6.5),
         facecolor=JETBRAINS_BACKGROUND,
     )
 
-    for ax in (ax_runtime, ax_timings):
-        ax.set_facecolor(JETBRAINS_PANEL)
-        ax.tick_params(colors="#F5F5F5")
-        for spine in ax.spines.values():
-            spine.set_color("#2A2A2A")
+    ax_runtime.set_facecolor(JETBRAINS_PANEL)
+    ax_runtime.tick_params(colors="#F5F5F5")
+    for spine in ax_runtime.spines.values():
+        spine.set_color("#2A2A2A")
 
     # Runtime bars with glow effect via shadowed patches
     bars = ax_runtime.barh(
@@ -96,56 +84,6 @@ def plot_results(
         linewidths=1.5,
         zorder=3,
     )
-
-    # Timing breakdown stacked bars
-    propose_bars = ax_timings.barh(
-        task_ids,
-        propose,
-        color="#FF318C",
-        alpha=0.9,
-        label="Propose",
-    )
-    ax_timings.barh(
-        task_ids,
-        execute,
-        left=propose,
-        color="#21D789",
-        alpha=0.9,
-        label="Execute",
-    )
-
-    ax_timings.set_xlabel("Phase duration (sec)", color="#F5F5F5")
-    ax_timings.grid(
-        True, axis="x", linestyle=":", linewidth=0.6, color="#313131", alpha=0.7
-    )
-    ax_timings.legend(
-        loc="upper right",
-        facecolor=JETBRAINS_PANEL,
-        edgecolor="#2A2A2A",
-        labelcolor="#F5F5F5",
-    )
-
-    for idx, bar in enumerate(propose_bars):
-        ax_timings.text(
-            bar.get_width() / 2,
-            bar.get_y() + bar.get_height() / 2,
-            f"{propose[idx]:.2f}s",
-            color="#FFFFFF",
-            ha="center",
-            va="center",
-            fontsize=9,
-        )
-    for idx, (prop, exec_time) in enumerate(zip(propose, execute)):
-        ax_timings.text(
-            prop + exec_time / 2,
-            idx,
-            f"{exec_time:.2f}s",
-            color="#041B15",
-            ha="center",
-            va="center",
-            fontsize=9,
-            fontweight="bold",
-        )
 
     pass_rate = sum(passed) / len(passed) if passed else 0.0
     total_runtime = sum(runtime)
@@ -204,8 +142,8 @@ def main() -> None:
     if not results:
         raise SystemExit(f"No results found in {args.input}")
 
-    data = extract_metrics(results)
-    plot_results(*data, output=args.output)
+    task_ids, passed, runtime = extract_metrics(results)
+    plot_results(task_ids, passed, runtime, output=args.output)
     print(f"Visualization saved to {args.output}")
 
 
