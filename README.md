@@ -69,6 +69,7 @@ Agent contract
 - Restricts file open calls to the sandbox folder
 - For stricter isolation in production, consider a containerized runner (Docker/Firecracker) or OS-level sandboxes
 - Pass `--sandbox docker` to run the candidate and tests inside a short-lived Docker container (requires Docker; honors `SANDBOX_DOCKER_IMAGE`, `SANDBOX_DOCKER_CPUS`, `SANDBOX_DOCKER_MEMORY`).
+- run `sudo docker events --filter type=container --format '{{.Time}}  {{.Status}}  {{.Actor.Attributes.name}}'` to stream the lifecycle of the container
 
 Pass@1 metric
 - We generate a single candidate per task; pass@1 is the fraction of tasks whose tests pass on the first attempt.
