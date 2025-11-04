@@ -68,9 +68,7 @@ def plot_results(
         task_ids, runtime, color=color_cycle, edgecolor="none", alpha=0.95
     )
     ax_runtime.set_xlabel("Total runtime (sec)", color="#F5F5F5")
-    ax_runtime.set_title(
-        "Run Performance — JetBrains Palette", color="#FFFFFF", pad=15, fontsize=16
-    )
+    ax_runtime.set_title("Run Performance", color="#FFFFFF", pad=15, fontsize=16)
     ax_runtime.invert_yaxis()
     ax_runtime.grid(
         True, axis="x", linestyle="--", linewidth=0.6, color="#2E2E2E", alpha=0.8
