@@ -34,10 +34,6 @@ def infer_model_name(results: List[dict]) -> Optional[str]:
     resolved: Optional[str] = None
     alias: Optional[str] = None
     for entry in results:
-        if alias is None:
-            alias_raw = entry.get("model_alias")
-            if isinstance(alias_raw, str) and alias_raw.strip():
-                alias = alias_raw.strip()
         for key in ("model", "model_id", "model_name"):
             value = entry.get(key)
             if isinstance(value, str) and value.strip():
@@ -53,8 +49,12 @@ def infer_model_name(results: List[dict]) -> Optional[str]:
                         if resolved is None:
                             resolved = value.strip()
                         break
-    if resolved and alias and alias != resolved:
-        return f"{alias} -> {resolved}"
+        if alias is None:
+            alias_raw = entry.get("model_alias")
+            if isinstance(alias_raw, str) and alias_raw.strip():
+                alias = alias_raw.strip()
+    if resolved and "/" not in resolved and alias and "/" in alias:
+        return alias
     return resolved or alias
 
 
@@ -85,10 +85,10 @@ def plot_results(
         task_ids, runtime, color=color_cycle, edgecolor="none", alpha=0.95
     )
     ax_runtime.set_xlabel("Total runtime (sec)", color="#F5F5F5")
-    title = "Run Performance"
     if model_name:
-        title = f"{title} - {model_name}"
-    ax_runtime.set_title(title, color="#FFFFFF", pad=15, fontsize=16)
+        ax_runtime.set_title(model_name, color="#FFFFFF", pad=15, fontsize=16)
+    else:
+        ax_runtime.set_title("", color="#FFFFFF", pad=15, fontsize=16)
     ax_runtime.invert_yaxis()
     ax_runtime.grid(
         True, axis="x", linestyle="--", linewidth=0.6, color="#2E2E2E", alpha=0.8
@@ -119,13 +119,18 @@ def plot_results(
 
     pass_rate = sum(passed) / len(passed) if passed else 0.0
     total_runtime = sum(runtime)
-    model_label = model_name if model_name else "not provided"
-    details_lines = [
-        f"Model: {model_label}",
-        f"Tasks evaluated: {len(task_ids)}",
-        f"Pass rate: {pass_rate:.0%}",
-        f"Total runtime: {total_runtime:.2f}s",
-    ]
+    details_lines = []
+    if model_name:
+        details_lines.append(model_name)
+    else:
+        details_lines.append("Model not provided")
+    details_lines.extend(
+        [
+            f"Tasks evaluated: {len(task_ids)}",
+            f"Pass rate: {pass_rate:.0%}",
+            f"Total runtime: {total_runtime:.2f}s",
+        ]
+    )
 
     fig.text(
         0.5,
