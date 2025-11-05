@@ -1,7 +1,7 @@
 import argparse
 import json
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 
@@ -23,11 +23,28 @@ def build_color_cycle(count: int) -> List[str]:
 
 def extract_metrics(
     results: List[dict],
-) -> Tuple[List[str], List[bool], List[float]]:
-    task_ids = [entry["task_id"].split("/")[-1] for entry in results]
+) -> Tuple[
+    List[str],
+    List[bool],
+    List[float],
+    List[Dict[str, float]],
+    List[Dict[str, float]],
+    List[int],
+]:
+    task_ids = [str(entry.get("task_id", "?")) for entry in results]
+    task_ids = [tid.split("/")[-1] for tid in task_ids]
     passed = [bool(entry.get("passed")) for entry in results]
     runtime = [float(entry.get("runtime_sec", 0.0)) for entry in results]
-    return task_ids, passed, runtime
+    token_usage = []
+    timings = []
+    iters = []
+    for entry in results:
+        usage = entry.get("token_usage") or {}
+        token_usage.append({k: float(usage.get(k, 0)) for k in usage})
+        timing = entry.get("timings_sec") or {}
+        timings.append({k: float(timing.get(k, 0.0)) for k in timing})
+        iters.append(int(entry.get("iters", 0)))
+    return task_ids, passed, runtime, token_usage, timings, iters
 
 
 def infer_model_name(results: List[dict]) -> Optional[str]:
@@ -64,15 +81,20 @@ def plot_results(
     runtime: List[float],
     output: Path,
     model_name: Optional[str] = None,
+    token_usage: Optional[List[Dict[str, float]]] = None,
+    timings: Optional[List[Dict[str, float]]] = None,
+    iters: Optional[List[int]] = None,
 ) -> None:
     color_cycle = build_color_cycle(len(task_ids))
     pass_colors = ["#21D789" if flag else "#FF318C" for flag in passed]
 
-    fig, ax_runtime = plt.subplots(
+    fig, (ax_runtime, ax_tokens) = plt.subplots(
         1,
-        1,
-        figsize=(12, 6.5),
+        2,
+        sharey=True,
+        figsize=(14, 6.5),
         facecolor=JETBRAINS_BACKGROUND,
+        gridspec_kw={"width_ratios": [1.1, 1.0]},
     )
 
     ax_runtime.set_facecolor(JETBRAINS_PANEL)
@@ -117,8 +139,75 @@ def plot_results(
         zorder=3,
     )
 
+    # Token usage subplot (stacked horizontal bars)
+    ax_tokens.set_facecolor(JETBRAINS_PANEL)
+    ax_tokens.tick_params(colors="#F5F5F5", labelleft=False)
+    for spine in ax_tokens.spines.values():
+        spine.set_color("#2A2A2A")
+
+    token_keys = [
+        ("propose_prompt_tokens", "Prompt"),
+        ("propose_completion_tokens", "Completion"),
+        ("reflect_prompt_tokens", "Reflect prompt"),
+        ("reflect_completion_tokens", "Reflect completion"),
+    ]
+    token_colors = ["#FFC110", "#FF6E4A", "#3DDCFF", "#FF318C"]
+    if token_usage is None:
+        token_usage = [{} for _ in task_ids]
+    cumulative = [0.0 for _ in task_ids]
+    for idx_key, (key, label) in enumerate(token_keys):
+        series = [float(entry.get(key, 0.0)) for entry in token_usage]
+        if not any(series):
+            continue
+        ax_tokens.barh(
+            task_ids,
+            series,
+            left=cumulative,
+            color=token_colors[idx_key % len(token_colors)],
+            edgecolor="none",
+            alpha=0.9,
+            label=label,
+        )
+        cumulative = [cum + val for cum, val in zip(cumulative, series)]
+
+    ax_tokens.set_xlabel("Tokens", color="#F5F5F5")
+    ax_tokens.grid(
+        True, axis="x", linestyle="--", linewidth=0.6, color="#2E2E2E", alpha=0.8
+    )
+    legend = ax_tokens.legend(
+        loc="lower right",
+        frameon=False,
+        facecolor=JETBRAINS_PANEL,
+        labelcolor="#F5F5F5",
+    )
+    if legend:
+        for text in legend.get_texts():
+            text.set_color("#F5F5F5")
+
     pass_rate = sum(passed) / len(passed) if passed else 0.0
     total_runtime = sum(runtime)
+    total_pass = sum(1 for flag in passed if flag)
+    total_fail = len(passed) - total_pass
+
+    # Aggregate metrics for summary text
+    token_totals = {
+        key: sum(entry.get(key, 0.0) for entry in token_usage) for key, _ in token_keys
+    }
+    total_tokens = sum(token_totals.values())
+    avg_tokens = total_tokens / len(task_ids) if task_ids else 0.0
+
+    timing_keys = ["t_propose_sec", "t_execute_sec", "t_reflect_sec"]
+    timing_totals = {key: 0.0 for key in timing_keys}
+    if timings:
+        for entry in timings:
+            for key in timing_keys:
+                timing_totals[key] += float(entry.get(key, 0.0))
+    timing_totals = {k: v for k, v in timing_totals.items() if v}
+
+    avg_runtime = total_runtime / len(runtime) if runtime else 0.0
+    avg_iters = sum(iters) / len(iters) if iters else 0.0
+    max_iters = max(iters) if iters else 0
+
     details_lines = []
     if model_name:
         details_lines.append(model_name)
@@ -129,8 +218,31 @@ def plot_results(
             f"Tasks evaluated: {len(task_ids)}",
             f"Pass rate: {pass_rate:.0%}",
             f"Total runtime: {total_runtime:.2f}s",
+            f"Avg runtime: {avg_runtime:.2f}s",
+            f"Passed: {total_pass}  Failed: {total_fail}",
+            f"Total tokens: {total_tokens:.0f} (avg {avg_tokens:.0f}/task)",
         ]
     )
+    if total_tokens > 0:
+        details_lines.append(
+            "Tokens breakdown: "
+            + ", ".join(
+                f"{label} {token_totals.get(key, 0.0):.0f}"
+                for key, label in token_keys
+                if token_totals.get(key, 0.0)
+            )
+        )
+    if timing_totals:
+        details_lines.append(
+            "Timings: "
+            + ", ".join(
+                f"{name.replace('t_', '').replace('_sec', '')} {value:.2f}s"
+                for name, value in timing_totals.items()
+                if value
+            )
+        )
+    if iters:
+        details_lines.append(f"Avg iters: {avg_iters:.1f} (max {max_iters})")
 
     fig.text(
         0.5,
@@ -193,9 +305,18 @@ def main() -> None:
     if not results:
         raise SystemExit(f"No results found in {args.input}")
 
-    task_ids, passed, runtime = extract_metrics(results)
+    task_ids, passed, runtime, token_usage, timings, iters = extract_metrics(results)
     model_name = args.model_name or infer_model_name(results)
-    plot_results(task_ids, passed, runtime, output=args.output, model_name=model_name)
+    plot_results(
+        task_ids,
+        passed,
+        runtime,
+        output=args.output,
+        model_name=model_name,
+        token_usage=token_usage,
+        timings=timings,
+        iters=iters,
+    )
     print(f"Visualization saved to {args.output}")
 
 

@@ -48,7 +48,7 @@ Execution:
 uv run run.py \
 	--model qwen3-0.6b \
 	--dataset-path ./dataset/humaneval_py.parquet \
-	--max 10 \
+	--max 5 \
 	--out ./results/results.jsonl \
 	--verbose \
 	--visualize
