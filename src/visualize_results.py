@@ -88,23 +88,36 @@ def plot_results(
     color_cycle = build_color_cycle(len(task_ids))
     pass_colors = ["#21D789" if flag else "#FF318C" for flag in passed]
 
-    fig, (ax_runtime, ax_tokens) = plt.subplots(
+    fig, ax_runtime = plt.subplots(
         1,
-        2,
-        sharey=True,
+        1,
         figsize=(14, 6.5),
         facecolor=JETBRAINS_BACKGROUND,
-        gridspec_kw={"width_ratios": [1.1, 1.0]},
     )
+    ax_tokens = ax_runtime.twiny()
 
     ax_runtime.set_facecolor(JETBRAINS_PANEL)
-    ax_runtime.tick_params(colors="#F5F5F5")
+    ax_runtime.tick_params(colors="#F5F5F5", axis="x")
     for spine in ax_runtime.spines.values():
         spine.set_color("#2A2A2A")
 
+    ax_tokens.spines["top"].set_color("#2A2A2A")
+    ax_tokens.spines["bottom"].set_visible(False)
+    ax_tokens.spines["left"].set_visible(False)
+    ax_tokens.spines["right"].set_visible(False)
+    ax_tokens.tick_params(axis="x", colors="#CFE8FF", labelsize=9, pad=6)
+    ax_tokens.tick_params(axis="y", left=False, labelleft=False)
+    ax_tokens.xaxis.set_ticks_position("top")
+    ax_tokens.set_facecolor("none")
+
     # Runtime bars with glow effect via shadowed patches
     bars = ax_runtime.barh(
-        task_ids, runtime, color=color_cycle, edgecolor="none", alpha=0.95
+        task_ids,
+        runtime,
+        color=color_cycle,
+        edgecolor="none",
+        alpha=0.95,
+        height=0.6,
     )
     ax_runtime.set_xlabel("Total runtime (sec)", color="#F5F5F5")
     if model_name:
@@ -117,6 +130,12 @@ def plot_results(
     )
 
     for idx, bar in enumerate(bars):
+        text_box = {
+            "facecolor": "#1F1F1F",
+            "alpha": 0.85,
+            "pad": 2,
+            "edgecolor": "none",
+        }
         ax_runtime.text(
             bar.get_width() + 0.05,
             bar.get_y() + bar.get_height() / 2,
@@ -125,11 +144,13 @@ def plot_results(
             ha="left",
             color="#F5F5F5",
             fontsize=10,
+            bbox=text_box,
         )
 
     # Pass/fail accent markers
+    max_runtime = max(runtime) if runtime else 1.0
     ax_runtime.scatter(
-        [0.02 * max(runtime) for _ in task_ids],
+        [0.02 * max_runtime for _ in task_ids],
         range(len(task_ids)),
         s=180,
         c=pass_colors,
@@ -139,19 +160,14 @@ def plot_results(
         zorder=3,
     )
 
-    # Token usage subplot (stacked horizontal bars)
-    ax_tokens.set_facecolor(JETBRAINS_PANEL)
-    ax_tokens.tick_params(colors="#F5F5F5", labelleft=False)
-    for spine in ax_tokens.spines.values():
-        spine.set_color("#2A2A2A")
-
+    # Token usage overlay on twin axis (stacked horizontal bars)
+    token_axis_colors = ["#9B5DE5", "#00BBF9", "#FEE440", "#00F5D4"]
     token_keys = [
         ("propose_prompt_tokens", "Prompt"),
         ("propose_completion_tokens", "Completion"),
         ("reflect_prompt_tokens", "Reflect prompt"),
         ("reflect_completion_tokens", "Reflect completion"),
     ]
-    token_colors = ["#FFC110", "#FF6E4A", "#3DDCFF", "#FF318C"]
     if token_usage is None:
         token_usage = [{} for _ in task_ids]
     cumulative = [0.0 for _ in task_ids]
@@ -163,26 +179,34 @@ def plot_results(
             task_ids,
             series,
             left=cumulative,
-            color=token_colors[idx_key % len(token_colors)],
+            color=token_axis_colors[idx_key % len(token_axis_colors)],
             edgecolor="none",
-            alpha=0.9,
+            alpha=0.7,
             label=label,
+            height=0.4,
+            zorder=2,
         )
         cumulative = [cum + val for cum, val in zip(cumulative, series)]
 
-    ax_tokens.set_xlabel("Tokens", color="#F5F5F5")
+    max_tokens = max(cumulative) if cumulative else 0.0
+    ax_tokens.set_xlim(0, max_tokens * 1.1 if max_tokens else 1.0)
+    ax_tokens.set_xlabel("Tokens", color="#CFE8FF", labelpad=8)
     ax_tokens.grid(
-        True, axis="x", linestyle="--", linewidth=0.6, color="#2E2E2E", alpha=0.8
+        True, axis="x", linestyle="--", linewidth=0.5, color="#3A3A3A", alpha=0.7
     )
+
     legend = ax_tokens.legend(
-        loc="lower right",
+        loc="upper right",
+        bbox_to_anchor=(1.0, 1.18),
         frameon=False,
-        facecolor=JETBRAINS_PANEL,
-        labelcolor="#F5F5F5",
+        fontsize=9,
     )
     if legend:
         for text in legend.get_texts():
             text.set_color("#F5F5F5")
+
+    # Align y-axis labels for clarity
+    ax_runtime.tick_params(axis="y", colors="#E0E0E0", labelsize=10)
 
     pass_rate = sum(passed) / len(passed) if passed else 0.0
     total_runtime = sum(runtime)
@@ -271,7 +295,7 @@ def plot_results(
         ha="right",
     )
 
-    plt.tight_layout(rect=(0, 0.05, 1, 0.92))
+    plt.tight_layout(rect=(0, 0.05, 1, 0.88))
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(str(output), facecolor=JETBRAINS_BACKGROUND, dpi=200)
     plt.close(fig)
