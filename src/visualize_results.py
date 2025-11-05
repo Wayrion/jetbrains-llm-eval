@@ -1,5 +1,6 @@
 import argparse
 import json
+import math
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -20,6 +21,24 @@ def load_results(path: Path) -> List[dict]:
 def build_color_cycle(count: int) -> List[str]:
     # Cycle through JetBrains colors while preserving order for gradients
     return [JETBRAINS_COLORS[i % len(JETBRAINS_COLORS)] for i in range(count)]
+
+
+def select_token_step(max_value: float) -> int:
+    if max_value <= 0:
+        return 10
+    candidate_steps = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000]
+    for step in candidate_steps:
+        if max_value / step <= 6:
+            return step
+    return candidate_steps[-1]
+
+
+def format_token_annotation(value: float) -> str:
+    if value >= 1000:
+        scaled = value / 1000.0
+        text = f"{scaled:.1f}".rstrip("0").rstrip(".")
+        return f"{text}k tokens"
+    return f"{value:.0f} tokens"
 
 
 def extract_metrics(
@@ -119,6 +138,7 @@ def plot_results(
         edgecolor="none",
         alpha=0.95,
         height=0.6,
+        zorder=2,
     )
     ax_runtime.set_xlabel("Total runtime (sec)", color="#F5F5F5")
     if model_name:
@@ -147,20 +167,6 @@ def plot_results(
             fontsize=10,
             bbox=text_box,
         )
-
-    # Pass/fail accent markers
-    max_runtime = max(runtime) if runtime else 1.0
-    ax_runtime.scatter(
-        [0.02 * max_runtime for _ in task_ids],
-        range(len(task_ids)),
-        s=180,
-        c=pass_colors,
-        marker="s",
-        edgecolors="#000000",
-        linewidths=1.5,
-        zorder=3,
-    )
-
     # Token usage overlay on twin axis (stacked horizontal bars)
     token_axis_colors = ["#9B5DE5", "#00BBF9", "#FEE440", "#00F5D4"]
     token_keys = [
@@ -178,15 +184,30 @@ def plot_results(
     ]
     max_tokens_actual = max(task_token_totals) if task_token_totals else 0.0
     runtime_max = max(runtime) if runtime else 1.0
-    token_ratio = 0.7
-    if max_tokens_actual > 0.0:
-        token_scale = (runtime_max * token_ratio) / max_tokens_actual
-        token_scale = min(token_scale, 1.0)
-    else:
+    if runtime_max <= 0:
+        runtime_max = 1.0
+    token_ratio = 0.45
+    token_axis_target = runtime_max * token_ratio if runtime_max else 1.0
+    token_step = select_token_step(max_tokens_actual)
+    nice_max_tokens = (
+        token_step
+        if max_tokens_actual <= 0
+        else max(token_step, math.ceil(max_tokens_actual / token_step) * token_step)
+    )
+    if nice_max_tokens <= 0:
         token_scale = 1.0
+    else:
+        token_scale = (
+            token_axis_target / nice_max_tokens if token_axis_target > 0 else 1.0
+        )
+        token_scale = min(token_scale, 1.0)
+
+    ticks_actual: List[int] = []
+    if nice_max_tokens > 0:
+        ticks_actual = list(range(0, int(nice_max_tokens) + token_step, token_step))
+    ticks_scaled = [tick * token_scale for tick in ticks_actual]
 
     cumulative_scaled = [0.0 for _ in task_ids]
-    token_segments: List[List[float]] = []
     for idx_key, (key, label) in enumerate(token_keys):
         series_actual = [float(entry.get(key, 0.0)) for entry in token_usage]
         if not any(series_actual):
@@ -200,23 +221,57 @@ def plot_results(
             edgecolor="none",
             alpha=0.65,
             label=label,
-            height=0.25,
-            zorder=2,
+            height=0.22,
+            zorder=5,
         )
-        token_segments.append(series_actual)
         cumulative_scaled = [
             cum + scaled for cum, scaled in zip(cumulative_scaled, series_scaled)
         ]
 
-    ax_tokens.set_xlim(0, runtime_max * token_ratio if runtime_max else 1.0)
+    if token_scale < 1.0:
+        token_axis_limit = token_axis_target
+    else:
+        token_axis_limit = (
+            max(ticks_scaled) * 1.05 if ticks_scaled else token_axis_target
+        )
+        token_axis_limit = (
+            min(token_axis_limit, token_axis_target)
+            if token_axis_target
+            else token_axis_limit
+        )
+    token_axis_limit = token_axis_limit or (
+        runtime_max * token_ratio if runtime_max else 1.0
+    )
+    ax_tokens.set_xlim(0, token_axis_limit)
     ax_tokens.set_xlabel("Tokens", color="#CFE8FF", labelpad=8)
     ax_tokens.grid(
         True, axis="x", linestyle="--", linewidth=0.5, color="#3A3A3A", alpha=0.7
     )
-    if token_scale > 0:
+    if ticks_scaled and token_scale > 0:
+        ax_tokens.set_xticks(ticks_scaled)
         ax_tokens.xaxis.set_major_formatter(
-            FuncFormatter(lambda value, _: f"{value / token_scale:.0f}")
+            FuncFormatter(
+                lambda value,
+                _: f"{round((value / token_scale) / token_step) * token_step:,.0f}"
+            )
         )
+
+    # Pass/fail accent markers layered atop tokens
+    max_runtime = max(runtime) if runtime else 1.0
+    if max_runtime <= 0:
+        max_runtime = 1.0
+    marker_y = [bar.get_y() + bar.get_height() / 2 for bar in bars]
+    ax_runtime.scatter(
+        [0.02 * max_runtime for _ in task_ids],
+        marker_y,
+        s=180,
+        c=pass_colors,
+        marker="s",
+        edgecolors="#000000",
+        linewidths=1.5,
+        zorder=10,
+        clip_on=False,
+    )
 
     legend = ax_tokens.legend(
         loc="upper right",
@@ -291,32 +346,31 @@ def plot_results(
         details_lines.append(f"Avg iters: {avg_iters:.1f} (max {max_iters})")
 
     # Token value annotations
-    for idx_task, _ in enumerate(task_ids):
-        base_scaled = 0.0
-        for series in token_segments:
-            value = series[idx_task]
-            if value <= 0:
+    if token_scale > 0:
+        axis_limit = ax_tokens.get_xlim()[1]
+        for idx_task, total_tokens in enumerate(task_token_totals):
+            if total_tokens <= 0:
                 continue
-            scaled_value = value * token_scale
-            center = base_scaled + scaled_value / 2
+            scaled_total = total_tokens * token_scale
+            x_pos = min(scaled_total + axis_limit * 0.02, axis_limit * 0.98)
             ax_tokens.text(
-                center,
+                x_pos,
                 idx_task,
-                f"{value:.0f}",
+                format_token_annotation(total_tokens),
                 va="center",
-                ha="center",
-                color="#0B0B0B",
-                fontsize=8,
+                ha="left",
+                color="#CFE8FF",
+                fontsize=9,
                 fontweight="bold",
                 bbox={
-                    "facecolor": "#CFE8FF",
-                    "alpha": 0.8,
-                    "edgecolor": "none",
-                    "boxstyle": "round,pad=0.15",
+                    "facecolor": "#152631",
+                    "alpha": 0.9,
+                    "edgecolor": "#00BBF9",
+                    "linewidth": 0.5,
+                    "boxstyle": "round,pad=0.25",
                 },
-                zorder=3,
+                zorder=5,
             )
-            base_scaled += scaled_value
 
     fig.text(
         0.5,
