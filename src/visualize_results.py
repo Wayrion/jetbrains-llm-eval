@@ -118,7 +118,7 @@ def plot_results(
     iters: Optional[List[int]] = None,
 ) -> None:
     color_cycle = build_color_cycle(len(task_ids))
-    pass_colors = ["#0DFF00" if flag else "#FF318C" for flag in passed]
+    pass_colors = ["#0DFF00" if flag else "#FF0000" for flag in passed]
 
     fig = plt.figure(figsize=(20, 9), facecolor=JETBRAINS_BACKGROUND)
 
@@ -235,10 +235,36 @@ def plot_results(
 
     token_ratio = 0.35
     token_axis_target = runtime_max * token_ratio
-    token_scale = token_axis_target / nice_max_tokens if nice_max_tokens else 0.0
-    token_scale = min(token_scale, 0.5)
-    token_axis_limit = token_axis_target * 1.05 if token_axis_target else 1.0
-    token_axis_limit = max(token_axis_limit, runtime_max * 0.12)
+    base_scale = token_axis_target / nice_max_tokens if nice_max_tokens else 0.0
+
+    token_runtime_ratio = 0.9
+    candidate_scales = []
+    for runtime_value, token_total in zip(runtime, task_token_totals):
+        if runtime_value > 0 and token_total > 0:
+            candidate_scales.append((runtime_value * token_runtime_ratio) / token_total)
+
+    if candidate_scales:
+        token_scale = min(base_scale, min(candidate_scales))
+    else:
+        token_scale = base_scale
+
+    if token_scale <= 0:
+        token_scale = base_scale if base_scale > 0 else 0.001
+
+    max_scaled_total = (
+        max(token_total * token_scale for token_total in task_token_totals)
+        if task_token_totals
+        else 0.0
+    )
+
+    if max_scaled_total > 0:
+        token_axis_limit = max_scaled_total * 1.1
+    else:
+        token_axis_limit = runtime_max * 0.15 if runtime_max > 0 else 1.0
+
+    if runtime_max > 0:
+        token_axis_limit = min(token_axis_limit, runtime_max * token_runtime_ratio)
+        token_axis_limit = max(token_axis_limit, runtime_max * 0.12)
 
     ax_tokens.set_xlim(0, token_axis_limit)
     ax_tokens.set_xlabel("Tokens", color="#CFE8FF", labelpad=8)
@@ -507,7 +533,7 @@ def plot_results(
     fig.text(
         0.98,
         0.06,
-        "Squares show pass/fail • Pink = fail • Green = pass",
+        "Squares show pass/fail • Red = fail • Green = pass",
         color="#FFFFFF",
         fontsize=10,
         ha="right",
