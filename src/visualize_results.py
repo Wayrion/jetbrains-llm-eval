@@ -33,9 +33,6 @@ def select_token_step(max_value: float) -> int:
     return candidate_steps[-1]
 
 
-# --- MODIFICATION: Split formatting functions for clarity ---
-
-
 def format_token_value(value: float) -> str:
     """Formats token count concisely (e.g., '1.2k' or '800')."""
     if value >= 1000:
@@ -52,9 +49,6 @@ def format_token_label(value: float) -> str:
         text = f"{scaled:.1f}".rstrip("0").rstrip(".")
         return f"{text}k tokens"
     return f"{value:.0f} tokens"
-
-
-# --- END MODIFICATION ---
 
 
 def extract_metrics(
@@ -122,15 +116,13 @@ def plot_results(
     iters: Optional[List[int]] = None,
 ) -> None:
     color_cycle = build_color_cycle(len(task_ids))
-    pass_colors = ["#21D789" if flag else "#FF318C" for flag in passed]
+    pass_colors = ["#0DFF00" if flag else "#FF318C" for flag in passed]
 
     fig = plt.figure(figsize=(15, 9), facecolor=JETBRAINS_BACKGROUND)
 
-    # --- MODIFICATION: Move status squares closer ---
     grid = fig.add_gridspec(
         1, 2, width_ratios=[0.12, 1.0], wspace=0.03
     )  # Was [0.18, 1.0], wspace=0.05
-    # --- END MODIFICATION ---
 
     ax_runtime = fig.add_subplot(grid[1])
     ax_tokens = ax_runtime.twiny()
@@ -149,9 +141,7 @@ def plot_results(
     ax_tokens.spines["right"].set_visible(False)
     ax_tokens.xaxis.set_ticks_position("top")
 
-    # --- MODIFICATION: Add padding above token tick labels ---
     ax_tokens.tick_params(axis="x", colors="#CFE8FF", labelsize=9, pad=10)  # Was pad=6
-    # --- END MODIFICATION ---
 
     ax_tokens.tick_params(axis="y", left=False, labelleft=False)
 
@@ -192,15 +182,12 @@ def plot_results(
             bbox=text_box,
         )
 
-    # --- MODIFICATION: Change completion token colors ---
     token_axis_colors = [
-        "#9B5DE5",
+        "#0400FF84",
         "#00BBF9",
-        "#34D399",
-        "#A7F3D0",
-    ]  # Was ["#9B5DE5", "#00BBF9", "#FEE440", "#00F5D4"]
-    # --- END MODIFICATION ---
-
+        "#9B5DE5",
+        "#A7F3EF",
+    ]
     token_keys = [
         ("propose_prompt_tokens", "Prompt"),
         ("reflect_prompt_tokens", "Reflect prompt"),
@@ -292,7 +279,6 @@ def plot_results(
 
         cumulative_scaled = new_cumulative_scaled
 
-    # --- MODIFICATION: Move legend and improve title ---
     if ax_tokens.get_legend_handles_labels()[0]:
         legend = ax_tokens.legend(
             loc="right",
@@ -303,7 +289,6 @@ def plot_results(
         legend.get_title().set_color("#F5F5F5")
         for text in legend.get_texts():
             text.set_color("#F5F5F5")
-    # --- END MODIFICATION ---
 
     axis_limit = ax_tokens.get_xlim()[1]
     padding_scaled = axis_limit * 0.015
@@ -365,14 +350,12 @@ def plot_results(
                 **text_props_inside,
             )
 
-        # --- MODIFICATION: Use long formatter for external total label ---
         ax_tokens.text(
             total_edge_scaled + padding_scaled,
             y_positions[idx_task],
-            f"Total: {format_token_label(total_raw)}",  # Use long formatter
+            f"T: {format_token_label(total_raw)}",  # Use long formatter
             **text_props_outside,
         )
-        # --- END MODIFICATION ---
 
     # Dedicated axis keeps pass/fail squares clear of the runtime bars.
     ax_status.set_facecolor("none")
@@ -420,7 +403,6 @@ def plot_results(
                 timing_totals[key] += float(entry.get(key, 0.0))
     timing_totals = {k: v for k, v in timing_totals.items() if v}
 
-    # --- MODIFICATION: Improve clarity of summary text ---
     details_lines = [
         f"Tasks evaluated: {len(task_ids)}",
         f"Pass rate: {pass_rate:.0%}",
@@ -447,7 +429,6 @@ def plot_results(
                 if value
             )
         )
-    # --- END MODIFICATION ---
 
     if iters:
         details_lines.append(f"Avg iters: {avg_iters:.1f} (max {max_iters})")
@@ -483,14 +464,12 @@ def plot_results(
         0.98,
         0.06,
         "Squares show pass/fail • Pink = fail • Green = pass",
-        color="#FF6E4A",
+        color="#FFFFFF",
         fontsize=9,
         ha="right",
     )
 
-    # --- MODIFICATION: Add more top padding ---
     plt.tight_layout(rect=(0, 0.65, 1, 0.85))  # Was 0.86
-    # --- END MODIFICATION ---
 
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(str(output), facecolor=JETBRAINS_BACKGROUND, dpi=200)
