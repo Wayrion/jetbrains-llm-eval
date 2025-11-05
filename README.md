@@ -14,7 +14,7 @@ What’s included
 - `run.py` — CLI to run the benchmark end-to-end
 
 Requirements
-- Python 3.13+
+- Python 3.11+
 - transformers, torch (install a torch build suitable for your platform)
 - datasets
 
