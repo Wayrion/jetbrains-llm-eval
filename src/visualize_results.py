@@ -120,7 +120,7 @@ def plot_results(
     color_cycle = build_color_cycle(len(task_ids))
     pass_colors = ["#0DFF00" if flag else "#FF0000" for flag in passed]
 
-    fig = plt.figure(figsize=(20, 9), facecolor=JETBRAINS_BACKGROUND)
+    fig = plt.figure(figsize=(20, 10), facecolor=JETBRAINS_BACKGROUND)
 
     grid = fig.add_gridspec(1, 3, width_ratios=[0.32, 0.1, 1.0], wspace=0.08)
 
@@ -501,6 +501,12 @@ def plot_results(
         fontsize=15,
         ha="center",
         va="top",
+        bbox={
+            "facecolor": JETBRAINS_BACKGROUND,
+            "edgecolor": "none",
+            "alpha": 0.8,
+            "pad": 6,
+        },
     )
     ax_info.text(
         0.02,
