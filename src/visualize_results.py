@@ -186,7 +186,7 @@ def plot_results(
     runtime_max = max(runtime) if runtime else 1.0
     if runtime_max <= 0:
         runtime_max = 1.0
-    token_ratio = 0.45
+    token_ratio = 0.20
     token_axis_target = runtime_max * token_ratio if runtime_max else 1.0
     token_step = select_token_step(max_tokens_actual)
     nice_max_tokens = (
@@ -227,6 +227,8 @@ def plot_results(
         cumulative_scaled = [
             cum + scaled for cum, scaled in zip(cumulative_scaled, series_scaled)
         ]
+
+    scaled_totals = cumulative_scaled[:]
 
     if token_scale < 1.0:
         token_axis_limit = token_axis_target
@@ -351,24 +353,20 @@ def plot_results(
         for idx_task, total_tokens in enumerate(task_token_totals):
             if total_tokens <= 0:
                 continue
-            scaled_total = total_tokens * token_scale
-            x_pos = min(scaled_total + axis_limit * 0.02, axis_limit * 0.98)
+            scaled_total = scaled_totals[idx_task]
+            if scaled_total <= 0:
+                continue
+            inset_offset = max(axis_limit * 0.03, scaled_total * 0.15)
+            x_pos = max(scaled_total - inset_offset, scaled_total * 0.55)
             ax_tokens.text(
                 x_pos,
                 idx_task,
                 format_token_annotation(total_tokens),
                 va="center",
-                ha="left",
-                color="#CFE8FF",
+                ha="right",
+                color="#0B0B0B",
                 fontsize=9,
                 fontweight="bold",
-                bbox={
-                    "facecolor": "#152631",
-                    "alpha": 0.9,
-                    "edgecolor": "#00BBF9",
-                    "linewidth": 0.5,
-                    "boxstyle": "round,pad=0.25",
-                },
                 zorder=8,
             )
 
