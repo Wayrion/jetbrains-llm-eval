@@ -108,43 +108,42 @@ def plot_results(
     color_cycle = build_color_cycle(len(task_ids))
     pass_colors = ["#21D789" if flag else "#FF318C" for flag in passed]
 
-    fig, ax_runtime = plt.subplots(
-        1,
-        1,
-        figsize=(14, 6.5),
-        facecolor=JETBRAINS_BACKGROUND,
-    )
+    fig = plt.figure(figsize=(15, 6.5), facecolor=JETBRAINS_BACKGROUND)
+    # Runtime and tokens share a canvas via twin axes; status markers sit on their own column.
+    grid = fig.add_gridspec(1, 2, width_ratios=[0.18, 1.0], wspace=0.05)
+    ax_runtime = fig.add_subplot(grid[1])
     ax_tokens = ax_runtime.twiny()
+    ax_status = fig.add_subplot(grid[0], sharey=ax_runtime)
 
     ax_runtime.set_facecolor(JETBRAINS_PANEL)
-    ax_runtime.tick_params(colors="#F5F5F5", axis="x")
     for spine in ax_runtime.spines.values():
         spine.set_color("#2A2A2A")
+    ax_runtime.tick_params(axis="x", colors="#F5F5F5")
+    ax_runtime.tick_params(axis="y", colors="#E0E0E0", labelsize=10)
 
+    ax_tokens.set_facecolor("none")
     ax_tokens.spines["top"].set_color("#2A2A2A")
     ax_tokens.spines["bottom"].set_visible(False)
     ax_tokens.spines["left"].set_visible(False)
     ax_tokens.spines["right"].set_visible(False)
+    ax_tokens.xaxis.set_ticks_position("top")
     ax_tokens.tick_params(axis="x", colors="#CFE8FF", labelsize=9, pad=6)
     ax_tokens.tick_params(axis="y", left=False, labelleft=False)
-    ax_tokens.xaxis.set_ticks_position("top")
-    ax_tokens.set_facecolor("none")
 
-    # Runtime bars with glow effect via shadowed patches
+    y_positions = list(range(len(task_ids)))
     bars = ax_runtime.barh(
-        task_ids,
+        y_positions,
         runtime,
         color=color_cycle,
         edgecolor="none",
         alpha=0.95,
         height=0.6,
         zorder=4,
+        align="center",
     )
     ax_runtime.set_xlabel("Total runtime (sec)", color="#F5F5F5")
-    if model_name:
-        ax_runtime.set_title(model_name, color="#FFFFFF", pad=15, fontsize=16)
-    else:
-        ax_runtime.set_title("", color="#FFFFFF", pad=15, fontsize=16)
+    ax_runtime.set_yticks(y_positions)
+    ax_runtime.set_yticklabels(task_ids)
     ax_runtime.invert_yaxis()
     ax_runtime.grid(
         True, axis="x", linestyle="--", linewidth=0.6, color="#2E2E2E", alpha=0.8
@@ -158,7 +157,7 @@ def plot_results(
             "edgecolor": "none",
         }
         ax_runtime.text(
-            bar.get_width() + 0.05,
+            bar.get_width() + max(bar.get_width() * 0.02, 0.05),
             bar.get_y() + bar.get_height() / 2,
             f"{runtime[idx]:.2f}s",
             va="center",
@@ -167,7 +166,7 @@ def plot_results(
             fontsize=10,
             bbox=text_box,
         )
-    # Token usage overlay on twin axis (stacked horizontal bars)
+
     token_axis_colors = ["#9B5DE5", "#00BBF9", "#FEE440", "#00F5D4"]
     token_keys = [
         ("propose_prompt_tokens", "Prompt"),
@@ -186,26 +185,43 @@ def plot_results(
     runtime_max = max(runtime) if runtime else 1.0
     if runtime_max <= 0:
         runtime_max = 1.0
-    token_ratio = 0.20
-    token_axis_target = runtime_max * token_ratio if runtime_max else 1.0
-    token_step = select_token_step(max_tokens_actual)
-    nice_max_tokens = (
-        token_step
-        if max_tokens_actual <= 0
-        else max(token_step, math.ceil(max_tokens_actual / token_step) * token_step)
-    )
-    if nice_max_tokens <= 0:
-        token_scale = 1.0
-    else:
-        token_scale = (
-            token_axis_target / nice_max_tokens if token_axis_target > 0 else 1.0
+    if max_tokens_actual > 0:
+        token_step = select_token_step(max_tokens_actual)
+        nice_max_tokens = max(
+            token_step, math.ceil(max_tokens_actual / token_step) * token_step
         )
-        token_scale = min(token_scale, 1.0)
+    else:
+        token_step = 10
+        nice_max_tokens = token_step
 
-    ticks_actual: List[int] = []
-    if nice_max_tokens > 0:
+    token_ratio = 0.35
+    token_axis_target = runtime_max * token_ratio
+    token_scale = token_axis_target / nice_max_tokens if nice_max_tokens else 0.0
+    token_scale = min(token_scale, 0.5)
+    token_axis_limit = token_axis_target * 1.05 if token_axis_target else 1.0
+    token_axis_limit = max(token_axis_limit, runtime_max * 0.12)
+
+    ax_tokens.set_xlim(0, token_axis_limit)
+    ax_tokens.set_xlabel("Tokens", color="#CFE8FF", labelpad=8)
+    ax_tokens.grid(
+        True, axis="x", linestyle="--", linewidth=0.5, color="#3A3A3A", alpha=0.7
+    )
+
+    if nice_max_tokens and token_scale > 0:
         ticks_actual = list(range(0, int(nice_max_tokens) + token_step, token_step))
-    ticks_scaled = [tick * token_scale for tick in ticks_actual]
+        ticks_scaled = [tick * token_scale for tick in ticks_actual]
+        ax_tokens.set_xticks(ticks_scaled)
+        ax_tokens.xaxis.set_major_formatter(
+            FuncFormatter(
+                lambda value, _: (
+                    f"{round((value / token_scale) / token_step) * token_step:,.0f}"
+                    if token_scale
+                    else "0"
+                )
+            )
+        )
+    else:
+        ax_tokens.set_xticks([])
 
     cumulative_scaled = [0.0 for _ in task_ids]
     for idx_key, (key, label) in enumerate(token_keys):
@@ -214,57 +230,72 @@ def plot_results(
             continue
         series_scaled = [value * token_scale for value in series_actual]
         ax_tokens.barh(
-            task_ids,
+            y_positions,
             series_scaled,
             left=cumulative_scaled,
             color=token_axis_colors[idx_key % len(token_axis_colors)],
             edgecolor="none",
-            alpha=0.65,
+            alpha=0.75,
+            height=0.42,
             label=label,
-            height=0.22,
             zorder=6,
+            align="center",
         )
         cumulative_scaled = [
             cum + scaled for cum, scaled in zip(cumulative_scaled, series_scaled)
         ]
 
-    scaled_totals = cumulative_scaled[:]
+    if ax_tokens.get_legend_handles_labels()[0]:
+        legend = ax_tokens.legend(
+            loc="upper right", frameon=False, fontsize=9, title="Token usage"
+        )
+        legend.get_title().set_color("#F5F5F5")
+        for text in legend.get_texts():
+            text.set_color("#F5F5F5")
 
-    if token_scale < 1.0:
-        token_axis_limit = token_axis_target
-    else:
-        token_axis_limit = (
-            max(ticks_scaled) * 1.05 if ticks_scaled else token_axis_target
+    scaled_totals = [value * token_scale for value in task_token_totals]
+    for idx_task, total_tokens in enumerate(task_token_totals):
+        prompt_total = float(
+            token_usage[idx_task].get("propose_prompt_tokens", 0.0)
+        ) + float(token_usage[idx_task].get("reflect_prompt_tokens", 0.0))
+        completion_total = float(
+            token_usage[idx_task].get("propose_completion_tokens", 0.0)
+        ) + float(token_usage[idx_task].get("reflect_completion_tokens", 0.0))
+        scaled_total = scaled_totals[idx_task]
+        axis_limit = ax_tokens.get_xlim()[1]
+        base_offset = axis_limit * 0.04
+        text_x = min(
+            max(scaled_total + base_offset, axis_limit * 0.12), axis_limit * 0.95
         )
-        token_axis_limit = (
-            min(token_axis_limit, token_axis_target)
-            if token_axis_target
-            else token_axis_limit
+        annotation = "\n".join(
+            [
+                format_token_annotation(total_tokens),
+                f"Prompt: {format_token_annotation(prompt_total)}",
+                f"Completion: {format_token_annotation(completion_total)}",
+            ]
         )
-    token_axis_limit = token_axis_limit or (
-        runtime_max * token_ratio if runtime_max else 1.0
-    )
-    ax_tokens.set_xlim(0, token_axis_limit)
-    ax_tokens.set_xlabel("Tokens", color="#CFE8FF", labelpad=8)
-    ax_tokens.grid(
-        True, axis="x", linestyle="--", linewidth=0.5, color="#3A3A3A", alpha=0.7
-    )
-    if ticks_scaled and token_scale > 0:
-        ax_tokens.set_xticks(ticks_scaled)
-        ax_tokens.xaxis.set_major_formatter(
-            FuncFormatter(
-                lambda value,
-                _: f"{round((value / token_scale) / token_step) * token_step:,.0f}"
-            )
+        ax_tokens.text(
+            text_x,
+            y_positions[idx_task],
+            annotation,
+            va="center",
+            ha="left",
+            color="#000000",
+            fontsize=9,
+            fontweight="bold",
+            zorder=8,
         )
 
-    # Pass/fail accent markers layered atop tokens
-    max_runtime = max(runtime) if runtime else 1.0
-    if max_runtime <= 0:
-        max_runtime = 1.0
+    # Dedicated axis keeps pass/fail squares clear of the runtime bars.
+    ax_status.set_facecolor("none")
+    for spine in ax_status.spines.values():
+        spine.set_visible(False)
+    ax_status.set_xticks([])
+    ax_status.set_yticks([])
+    ax_status.set_xlim(-0.6, 0.6)
     marker_y = [bar.get_y() + bar.get_height() / 2 for bar in bars]
-    ax_runtime.scatter(
-        [0.02 * max_runtime for _ in task_ids],
+    ax_status.scatter(
+        [0.0 for _ in marker_y],
         marker_y,
         s=180,
         c=pass_colors,
@@ -274,19 +305,10 @@ def plot_results(
         zorder=30,
         clip_on=False,
     )
-
-    legend = ax_tokens.legend(
-        loc="upper right",
-        bbox_to_anchor=(1.0, 1.18),
-        frameon=False,
-        fontsize=9,
-    )
-    if legend:
-        for text in legend.get_texts():
-            text.set_color("#F5F5F5")
-
-    # Align y-axis labels for clarity
-    ax_runtime.tick_params(axis="y", colors="#E0E0E0", labelsize=10)
+    ax_status.invert_yaxis()
+    runtime_ylim = ax_runtime.get_ylim()
+    ax_tokens.set_ylim(runtime_ylim)
+    ax_status.set_ylim(runtime_ylim)
 
     pass_rate = sum(passed) / len(passed) if passed else 0.0
     total_runtime = sum(runtime)
@@ -311,21 +333,14 @@ def plot_results(
                 timing_totals[key] += float(entry.get(key, 0.0))
     timing_totals = {k: v for k, v in timing_totals.items() if v}
 
-    details_lines = []
-    if model_name:
-        details_lines.append(model_name)
-    else:
-        details_lines.append("Model not provided")
-    details_lines.extend(
-        [
-            f"Tasks evaluated: {len(task_ids)}",
-            f"Pass rate: {pass_rate:.0%}",
-            f"Total runtime: {total_runtime:.2f}s",
-            f"Avg runtime: {avg_runtime:.2f}s",
-            f"Passed: {total_pass}  Failed: {total_fail}",
-            f"Total tokens: {total_tokens:.0f} (avg {avg_tokens:.0f}/task)",
-        ]
-    )
+    details_lines = [
+        f"Tasks evaluated: {len(task_ids)}",
+        f"Pass rate: {pass_rate:.0%}",
+        f"Total runtime: {total_runtime:.2f}s",
+        f"Avg runtime: {avg_runtime:.2f}s",
+        f"Passed: {total_pass}  Failed: {total_fail}",
+        f"Total tokens: {total_tokens:.0f} (avg {avg_tokens:.0f}/task)",
+    ]
     if total_tokens > 0:
         details_lines.append(
             "Tokens breakdown: "
@@ -347,29 +362,7 @@ def plot_results(
     if iters:
         details_lines.append(f"Avg iters: {avg_iters:.1f} (max {max_iters})")
 
-    # Token value annotations
-    if token_scale > 0:
-        axis_limit = ax_tokens.get_xlim()[1]
-        for idx_task, total_tokens in enumerate(task_token_totals):
-            if total_tokens <= 0:
-                continue
-            scaled_total = scaled_totals[idx_task]
-            if scaled_total <= 0:
-                continue
-            inset_offset = max(axis_limit * 0.03, scaled_total * 0.15)
-            x_pos = max(scaled_total - inset_offset, scaled_total * 0.55)
-            ax_tokens.text(
-                x_pos,
-                idx_task,
-                format_token_annotation(total_tokens),
-                va="center",
-                ha="right",
-                color="#0B0B0B",
-                fontsize=9,
-                fontweight="bold",
-                zorder=8,
-            )
-
+    model_banner = model_name if model_name else "Model not provided"
     fig.text(
         0.5,
         0.96,
@@ -380,8 +373,16 @@ def plot_results(
         ha="center",
     )
     fig.text(
+        0.5,
+        0.92,
+        model_banner,
+        color="#FFFFFF",
+        fontsize=15,
+        ha="center",
+    )
+    fig.text(
         0.02,
-        0.91,
+        0.88,
         "\n".join(details_lines),
         color="#3DDCFF",
         fontsize=12,
