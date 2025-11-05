@@ -138,7 +138,7 @@ def plot_results(
         edgecolor="none",
         alpha=0.95,
         height=0.6,
-        zorder=2,
+        zorder=4,
     )
     ax_runtime.set_xlabel("Total runtime (sec)", color="#F5F5F5")
     if model_name:
@@ -222,7 +222,7 @@ def plot_results(
             alpha=0.65,
             label=label,
             height=0.22,
-            zorder=5,
+            zorder=6,
         )
         cumulative_scaled = [
             cum + scaled for cum, scaled in zip(cumulative_scaled, series_scaled)
@@ -269,7 +269,7 @@ def plot_results(
         marker="s",
         edgecolors="#000000",
         linewidths=1.5,
-        zorder=10,
+        zorder=30,
         clip_on=False,
     )
 
@@ -369,7 +369,7 @@ def plot_results(
                     "linewidth": 0.5,
                     "boxstyle": "round,pad=0.25",
                 },
-                zorder=5,
+                zorder=8,
             )
 
     fig.text(
