@@ -1,10 +1,12 @@
 import argparse
 import json
 import math
+import textwrap
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
+from matplotlib import patheffects as pe
 from matplotlib.ticker import FuncFormatter
 
 # JetBrains brand-inspired palette for a bold dark theme
@@ -120,7 +122,7 @@ def plot_results(
 
     fig = plt.figure(figsize=(20, 9), facecolor=JETBRAINS_BACKGROUND)
 
-    grid = fig.add_gridspec(1, 3, width_ratios=[0.28, 0.1, 1.0], wspace=0.08)
+    grid = fig.add_gridspec(1, 3, width_ratios=[0.32, 0.1, 1.0], wspace=0.08)
 
     ax_runtime = fig.add_subplot(grid[2])
     ax_tokens = ax_runtime.twiny()
@@ -310,7 +312,7 @@ def plot_results(
         "va": "center",
         "ha": "right",
         "color": "#FFFFFF",
-        "fontsize": 9,
+        "fontsize": 10,
         "fontweight": "bold",
         "zorder": 8,
     }
@@ -318,10 +320,14 @@ def plot_results(
         "va": "center",
         "ha": "left",
         "color": "#CFE8FF",
-        "fontsize": 9,
+        "fontsize": 10,
         "fontweight": "bold",
         "zorder": 8,
     }
+    token_label_shadow = [
+        pe.withSimplePatchShadow(offset=(1.0, -1.0), shadow_rgbFace=(0, 0, 0, 0.45)),
+        pe.Normal(),
+    ]
 
     for idx_task in range(len(task_ids)):
         propose_prompt = token_usage[idx_task].get("propose_prompt_tokens", 0.0)
@@ -348,27 +354,30 @@ def plot_results(
         total_edge_scaled = completion_edge_scaled
 
         if prompt_total_raw > 0 and prompt_edge_scaled > 0:
-            ax_tokens.text(
+            prompt_text = ax_tokens.text(
                 prompt_edge_scaled - padding_scaled,
                 y_positions[idx_task],
                 f"P: {format_token_value(prompt_total_raw)}",  # Use short formatter
                 **text_props_inside,
             )
+            prompt_text.set_path_effects(token_label_shadow)
 
         if completion_total_raw > 0 and completion_edge_scaled > prompt_edge_scaled:
-            ax_tokens.text(
+            completion_text = ax_tokens.text(
                 completion_edge_scaled - padding_scaled,
                 y_positions[idx_task],
                 f"C: {format_token_value(completion_total_raw)}",  # Use short formatter
                 **text_props_inside,
             )
+            completion_text.set_path_effects(token_label_shadow)
 
-        ax_tokens.text(
+        total_text = ax_tokens.text(
             total_edge_scaled + padding_scaled,
             y_positions[idx_task],
             f"T: {format_token_label(total_raw)}",  # Use long formatter
             **text_props_outside,
         )
+        total_text.set_path_effects(token_label_shadow)
 
     # Dedicated axis keeps pass/fail squares clear of the runtime bars.
     ax_status.set_facecolor("none")
@@ -476,10 +485,18 @@ def plot_results(
         va="top",
         transform=ax_info.transAxes,
     )
+    wrapped_lines: List[str] = []
+    for line in details_lines:
+        segments = textwrap.wrap(line, width=42, break_long_words=False)
+        if segments:
+            wrapped_lines.extend(segments)
+        else:
+            wrapped_lines.append(line)
+
     ax_info.text(
         0.02,
         0.92,
-        "\n".join(details_lines),
+        "\n".join(wrapped_lines),
         color="#67D5FF",
         fontsize=12,
         linespacing=1.3,
@@ -492,7 +509,7 @@ def plot_results(
         0.06,
         "Squares show pass/fail • Pink = fail • Green = pass",
         color="#FFFFFF",
-        fontsize=9,
+        fontsize=10,
         ha="right",
     )
 
