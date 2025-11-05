@@ -33,12 +33,28 @@ def select_token_step(max_value: float) -> int:
     return candidate_steps[-1]
 
 
-def format_token_annotation(value: float) -> str:
+# --- MODIFICATION: Split formatting functions for clarity ---
+
+
+def format_token_value(value: float) -> str:
+    """Formats token count concisely (e.g., '1.2k' or '800')."""
     if value >= 1000:
         scaled = value / 1000.0
         text = f"{scaled:.1f}".rstrip("0").rstrip(".")
-        return f"{text}k"  # Shorten for inside-bar text
+        return f"{text}k"
     return f"{value:.0f}"
+
+
+def format_token_label(value: float) -> str:
+    """Formats token count as a full label (e.g., '1.2k tokens' or '800 tokens')."""
+    if value >= 1000:
+        scaled = value / 1000.0
+        text = f"{scaled:.1f}".rstrip("0").rstrip(".")
+        return f"{text}k tokens"
+    return f"{value:.0f} tokens"
+
+
+# --- END MODIFICATION ---
 
 
 def extract_metrics(
@@ -108,9 +124,14 @@ def plot_results(
     color_cycle = build_color_cycle(len(task_ids))
     pass_colors = ["#21D789" if flag else "#FF318C" for flag in passed]
 
-    fig = plt.figure(figsize=(15, 6.5), facecolor=JETBRAINS_BACKGROUND)
-    # Runtime and tokens share a canvas via twin axes; status markers sit on their own column.
-    grid = fig.add_gridspec(1, 2, width_ratios=[0.18, 1.0], wspace=0.05)
+    fig = plt.figure(figsize=(15, 9), facecolor=JETBRAINS_BACKGROUND)
+
+    # --- MODIFICATION: Move status squares closer ---
+    grid = fig.add_gridspec(
+        1, 2, width_ratios=[0.12, 1.0], wspace=0.03
+    )  # Was [0.18, 1.0], wspace=0.05
+    # --- END MODIFICATION ---
+
     ax_runtime = fig.add_subplot(grid[1])
     ax_tokens = ax_runtime.twiny()
     ax_status = fig.add_subplot(grid[0], sharey=ax_runtime)
@@ -127,7 +148,11 @@ def plot_results(
     ax_tokens.spines["left"].set_visible(False)
     ax_tokens.spines["right"].set_visible(False)
     ax_tokens.xaxis.set_ticks_position("top")
-    ax_tokens.tick_params(axis="x", colors="#CFE8FF", labelsize=9, pad=6)
+
+    # --- MODIFICATION: Add padding above token tick labels ---
+    ax_tokens.tick_params(axis="x", colors="#CFE8FF", labelsize=9, pad=10)  # Was pad=6
+    # --- END MODIFICATION ---
+
     ax_tokens.tick_params(axis="y", left=False, labelleft=False)
 
     y_positions = list(range(len(task_ids)))
@@ -167,17 +192,21 @@ def plot_results(
             bbox=text_box,
         )
 
-    token_axis_colors = ["#9B5DE5", "#00BBF9", "#FEE440", "#00F5D4"]
+    # --- MODIFICATION: Change completion token colors ---
+    token_axis_colors = [
+        "#9B5DE5",
+        "#00BBF9",
+        "#34D399",
+        "#A7F3D0",
+    ]  # Was ["#9B5DE5", "#00BBF9", "#FEE440", "#00F5D4"]
+    # --- END MODIFICATION ---
 
-    # --- MODIFICATION 1: Re-order keys for logical stacking ---
     token_keys = [
         ("propose_prompt_tokens", "Prompt"),
         ("reflect_prompt_tokens", "Reflect prompt"),
         ("propose_completion_tokens", "Completion"),
         ("reflect_completion_tokens", "Reflect completion"),
     ]
-    # --- END MODIFICATION 1 ---
-
     if token_usage is None:
         token_usage = [{} for _ in task_ids]
 
@@ -231,9 +260,7 @@ def plot_results(
     else:
         ax_tokens.set_xticks([])
 
-    # --- MODIFICATION 2: Store bar positions for annotations ---
     cumulative_scaled = [0.0 for _ in task_ids]
-    # bar_positions[task_index][key] = right_edge_scaled
     bar_positions = [{} for _ in task_ids]
 
     for idx_key, (key, label) in enumerate(token_keys):
@@ -259,30 +286,32 @@ def plot_results(
             cum + scaled for cum, scaled in zip(cumulative_scaled, series_scaled)
         ]
 
-        # Store the right edge of this bar segment for each task
         for i in range(len(task_ids)):
             if series_scaled[i] > 0:
                 bar_positions[i][key] = new_cumulative_scaled[i]
 
         cumulative_scaled = new_cumulative_scaled
-    # --- END MODIFICATION 2 ---
 
+    # --- MODIFICATION: Move legend and improve title ---
     if ax_tokens.get_legend_handles_labels()[0]:
         legend = ax_tokens.legend(
-            loc="upper right", frameon=False, fontsize=9, title="Token usage"
+            loc="right",
+            frameon=False,
+            fontsize=9,
+            title="Token Type",  # Was "upper right", "Token usage"
         )
         legend.get_title().set_color("#F5F5F5")
         for text in legend.get_texts():
             text.set_color("#F5F5F5")
+    # --- END MODIFICATION ---
 
-    # --- MODIFICATION 3: New split annotation logic ---
     axis_limit = ax_tokens.get_xlim()[1]
-    padding_scaled = axis_limit * 0.015  # Padding in axis coordinates
+    padding_scaled = axis_limit * 0.015
 
     text_props_inside = {
         "va": "center",
         "ha": "right",
-        "color": "#000000",  # Black text
+        "color": "#000000",
         "fontsize": 8,
         "fontweight": "bold",
         "zorder": 8,
@@ -290,14 +319,13 @@ def plot_results(
     text_props_outside = {
         "va": "center",
         "ha": "left",
-        "color": "#CFE8FF",  # Light text
+        "color": "#CFE8FF",
         "fontsize": 8,
         "fontweight": "bold",
         "zorder": 8,
     }
 
     for idx_task in range(len(task_ids)):
-        # Get raw token values
         propose_prompt = token_usage[idx_task].get("propose_prompt_tokens", 0.0)
         reflect_prompt = token_usage[idx_task].get("reflect_prompt_tokens", 0.0)
         propose_completion = token_usage[idx_task].get("propose_completion_tokens", 0.0)
@@ -310,48 +338,41 @@ def plot_results(
         if total_raw == 0:
             continue
 
-        # Get scaled edge positions from our stored dictionary
         task_pos = bar_positions[idx_task]
 
-        # Edge of the *last* prompt segment (either reflect or propose)
         prompt_edge_scaled = task_pos.get(
             "reflect_prompt_tokens", task_pos.get("propose_prompt_tokens", 0.0)
         )
-
-        # Edge of the *last* completion segment (either reflect or propose)
         completion_edge_scaled = task_pos.get(
-            "reflect_completion_tokens", task_pos.get("propose_completion_tokens", 0.0)
+            "reflect_completion_tokens",
+            task_pos.get("propose_completion_tokens", 0.0),
         )
-
-        # Total edge is the same as the final completion edge
         total_edge_scaled = completion_edge_scaled
 
-        # 1. Add Prompt Total Annotation (if it exists)
         if prompt_total_raw > 0 and prompt_edge_scaled > 0:
             ax_tokens.text(
                 prompt_edge_scaled - padding_scaled,
                 y_positions[idx_task],
-                f"P: {format_token_annotation(prompt_total_raw)}",
+                f"P: {format_token_value(prompt_total_raw)}",  # Use short formatter
                 **text_props_inside,
             )
 
-        # 2. Add Completion Total Annotation (if it exists)
         if completion_total_raw > 0 and completion_edge_scaled > prompt_edge_scaled:
             ax_tokens.text(
                 completion_edge_scaled - padding_scaled,
                 y_positions[idx_task],
-                f"C: {format_token_annotation(completion_total_raw)}",
+                f"C: {format_token_value(completion_total_raw)}",  # Use short formatter
                 **text_props_inside,
             )
 
-        # 3. Add Grand Total Annotation (always, if total > 0)
+        # --- MODIFICATION: Use long formatter for external total label ---
         ax_tokens.text(
             total_edge_scaled + padding_scaled,
             y_positions[idx_task],
-            f"Total: {format_token_annotation(total_raw)}",
+            f"Total: {format_token_label(total_raw)}",  # Use long formatter
             **text_props_outside,
         )
-    # --- END MODIFICATION 3 ---
+        # --- END MODIFICATION ---
 
     # Dedicated axis keeps pass/fail squares clear of the runtime bars.
     ax_status.set_facecolor("none")
@@ -385,7 +406,6 @@ def plot_results(
     avg_iters = sum(iters) / len(iters) if iters else 0.0
     max_iters = max(iters) if iters else 0
 
-    # Aggregate metrics for summary text
     token_totals = {
         key: sum(entry.get(key, 0.0) for entry in token_usage) for key, _ in token_keys
     }
@@ -400,32 +420,35 @@ def plot_results(
                 timing_totals[key] += float(entry.get(key, 0.0))
     timing_totals = {k: v for k, v in timing_totals.items() if v}
 
+    # --- MODIFICATION: Improve clarity of summary text ---
     details_lines = [
         f"Tasks evaluated: {len(task_ids)}",
         f"Pass rate: {pass_rate:.0%}",
         f"Total runtime: {total_runtime:.2f}s",
         f"Avg runtime: {avg_runtime:.2f}s",
         f"Passed: {total_pass}  Failed: {total_fail}",
-        f"Total tokens: {total_tokens:.0f} (avg {avg_tokens:.0f}/task)",
+        f"Total tokens: {format_token_label(total_tokens)} (avg {format_token_value(avg_tokens)}/task)",
     ]
     if total_tokens > 0:
         details_lines.append(
-            "Tokens breakdown: "
+            "Token Usage (Total): "  # Was "Tokens breakdown: "
             + ", ".join(
-                f"{label} {token_totals.get(key, 0.0):.0f}"
+                f"{label} {format_token_value(token_totals.get(key, 0.0))}"
                 for key, label in token_keys
                 if token_totals.get(key, 0.0)
             )
         )
     if timing_totals:
         details_lines.append(
-            "Timings: "
+            "Time Allocation (Total): "  # Was "Timings: "
             + ", ".join(
                 f"{name.replace('t_', '').replace('_sec', '')} {value:.2f}s"
                 for name, value in timing_totals.items()
                 if value
             )
         )
+    # --- END MODIFICATION ---
+
     if iters:
         details_lines.append(f"Avg iters: {avg_iters:.1f} (max {max_iters})")
 
@@ -465,9 +488,9 @@ def plot_results(
         ha="right",
     )
 
-    # --- MODIFICATION 4: Add padding by shrinking plot top rect ---
-    plt.tight_layout(rect=(0, 0.05, 1, 0.86))  # Was 0.88
-    # --- END MODIFICATION 4 ---
+    # --- MODIFICATION: Add more top padding ---
+    plt.tight_layout(rect=(0, 0.65, 1, 0.85))  # Was 0.86
+    # --- END MODIFICATION ---
 
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(str(output), facecolor=JETBRAINS_BACKGROUND, dpi=200)

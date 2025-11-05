@@ -80,7 +80,7 @@ sudo -E env PATH="$PATH" VIRTUAL_ENV="$VIRTUAL_ENV" uv run run.py \
 # Re-generate the visualization from an existing JSONL results file
 uv run python src/visualize_results.py \
 	--input results/results.jsonl \
-	--output results/humaneval.png
+	--output results/results.png
 ```
 
 
