@@ -37,8 +37,8 @@ def format_token_annotation(value: float) -> str:
     if value >= 1000:
         scaled = value / 1000.0
         text = f"{scaled:.1f}".rstrip("0").rstrip(".")
-        return f"{text}k tokens"
-    return f"{value:.0f} tokens"
+        return f"{text}k"  # Shorten for inside-bar text
+    return f"{value:.0f}"
 
 
 def extract_metrics(
@@ -118,7 +118,7 @@ def plot_results(
     ax_runtime.set_facecolor(JETBRAINS_PANEL)
     for spine in ax_runtime.spines.values():
         spine.set_color("#2A2A2A")
-    ax_runtime.tick_params(axis="x", colors="#F5F5FF")
+    ax_runtime.tick_params(axis="x", colors="#F5F5F5")
     ax_runtime.tick_params(axis="y", colors="#E0E0E0", labelsize=10)
 
     ax_tokens.set_facecolor("none")
@@ -168,12 +168,16 @@ def plot_results(
         )
 
     token_axis_colors = ["#9B5DE5", "#00BBF9", "#FEE440", "#00F5D4"]
+
+    # --- MODIFICATION 1: Re-order keys for logical stacking ---
     token_keys = [
         ("propose_prompt_tokens", "Prompt"),
-        ("propose_completion_tokens", "Completion"),
         ("reflect_prompt_tokens", "Reflect prompt"),
+        ("propose_completion_tokens", "Completion"),
         ("reflect_completion_tokens", "Reflect completion"),
     ]
+    # --- END MODIFICATION 1 ---
+
     if token_usage is None:
         token_usage = [{} for _ in task_ids]
 
@@ -186,23 +190,17 @@ def plot_results(
     if runtime_max <= 0:
         runtime_max = 1.0
 
-    # --- MODIFICATION 1: Force a larger token axis scale ---
-    # Force axis to be at least 1000, per user request, to shrink bars
     desired_max_tokens = max(max_tokens_actual, 1000.0)
 
-    if desired_max_tokens > 0:  # Use desired_max_tokens here
-        token_step = select_token_step(
-            desired_max_tokens
-        )  # Use desired_max_tokens here
+    if desired_max_tokens > 0:
+        token_step = select_token_step(desired_max_tokens)
         nice_max_tokens = max(
             token_step,
-            math.ceil(desired_max_tokens / token_step)
-            * token_step,  # Use desired_max_tokens here
+            math.ceil(desired_max_tokens / token_step) * token_step,
         )
     else:
         token_step = 10
         nice_max_tokens = token_step
-    # --- END MODIFICATION 1 ---
 
     token_ratio = 0.35
     token_axis_target = runtime_max * token_ratio
@@ -233,12 +231,17 @@ def plot_results(
     else:
         ax_tokens.set_xticks([])
 
+    # --- MODIFICATION 2: Store bar positions for annotations ---
     cumulative_scaled = [0.0 for _ in task_ids]
+    # bar_positions[task_index][key] = right_edge_scaled
+    bar_positions = [{} for _ in task_ids]
+
     for idx_key, (key, label) in enumerate(token_keys):
         series_actual = [float(entry.get(key, 0.0)) for entry in token_usage]
         if not any(series_actual):
             continue
         series_scaled = [value * token_scale for value in series_actual]
+
         ax_tokens.barh(
             y_positions,
             series_scaled,
@@ -251,9 +254,18 @@ def plot_results(
             zorder=6,
             align="center",
         )
-        cumulative_scaled = [
+
+        new_cumulative_scaled = [
             cum + scaled for cum, scaled in zip(cumulative_scaled, series_scaled)
         ]
+
+        # Store the right edge of this bar segment for each task
+        for i in range(len(task_ids)):
+            if series_scaled[i] > 0:
+                bar_positions[i][key] = new_cumulative_scaled[i]
+
+        cumulative_scaled = new_cumulative_scaled
+    # --- END MODIFICATION 2 ---
 
     if ax_tokens.get_legend_handles_labels()[0]:
         legend = ax_tokens.legend(
@@ -263,55 +275,83 @@ def plot_results(
         for text in legend.get_texts():
             text.set_color("#F5F5F5")
 
-    scaled_totals = [value * token_scale for value in task_token_totals]
-    for idx_task, total_tokens in enumerate(task_token_totals):
-        # --- MODIFICATION 2: Reposition and style annotations ---
-        if total_tokens == 0:
+    # --- MODIFICATION 3: New split annotation logic ---
+    axis_limit = ax_tokens.get_xlim()[1]
+    padding_scaled = axis_limit * 0.015  # Padding in axis coordinates
+
+    text_props_inside = {
+        "va": "center",
+        "ha": "right",
+        "color": "#000000",  # Black text
+        "fontsize": 8,
+        "fontweight": "bold",
+        "zorder": 8,
+    }
+    text_props_outside = {
+        "va": "center",
+        "ha": "left",
+        "color": "#CFE8FF",  # Light text
+        "fontsize": 8,
+        "fontweight": "bold",
+        "zorder": 8,
+    }
+
+    for idx_task in range(len(task_ids)):
+        # Get raw token values
+        propose_prompt = token_usage[idx_task].get("propose_prompt_tokens", 0.0)
+        reflect_prompt = token_usage[idx_task].get("reflect_prompt_tokens", 0.0)
+        propose_completion = token_usage[idx_task].get("propose_completion_tokens", 0.0)
+        reflect_completion = token_usage[idx_task].get("reflect_completion_tokens", 0.0)
+
+        prompt_total_raw = propose_prompt + reflect_prompt
+        completion_total_raw = propose_completion + reflect_completion
+        total_raw = prompt_total_raw + completion_total_raw
+
+        if total_raw == 0:
             continue
 
-        prompt_total = float(
-            token_usage[idx_task].get("propose_prompt_tokens", 0.0)
-        ) + float(token_usage[idx_task].get("reflect_prompt_tokens", 0.0))
-        completion_total = float(
-            token_usage[idx_task].get("propose_completion_tokens", 0.0)
-        ) + float(token_usage[idx_task].get("reflect_completion_tokens", 0.0))
+        # Get scaled edge positions from our stored dictionary
+        task_pos = bar_positions[idx_task]
 
-        scaled_total = scaled_totals[idx_task]
-        axis_limit = ax_tokens.get_xlim()[1]
-
-        # Position text *inside* the bar with padding from the right edge
-        padding = axis_limit * 0.015
-        text_x = scaled_total - padding
-
-        annotation = "\n".join(
-            [
-                f"Total: {format_token_annotation(total_tokens)}",  # Be explicit
-                f"Prompt: {format_token_annotation(prompt_total)}",
-                f"Comp: {format_token_annotation(completion_total)}",  # Shorten
-            ]
+        # Edge of the *last* prompt segment (either reflect or propose)
+        prompt_edge_scaled = task_pos.get(
+            "reflect_prompt_tokens", task_pos.get("propose_prompt_tokens", 0.0)
         )
 
-        # Add a background box for readability on top of colored bars
-        text_box = {
-            "facecolor": "#0A0A0A",  # Dark background from theme
-            "alpha": 0.6,  # Semi-transparent
-            "pad": 1.5,
-            "edgecolor": "none",
-        }
+        # Edge of the *last* completion segment (either reflect or propose)
+        completion_edge_scaled = task_pos.get(
+            "reflect_completion_tokens", task_pos.get("propose_completion_tokens", 0.0)
+        )
 
+        # Total edge is the same as the final completion edge
+        total_edge_scaled = completion_edge_scaled
+
+        # 1. Add Prompt Total Annotation (if it exists)
+        if prompt_total_raw > 0 and prompt_edge_scaled > 0:
+            ax_tokens.text(
+                prompt_edge_scaled - padding_scaled,
+                y_positions[idx_task],
+                f"P: {format_token_annotation(prompt_total_raw)}",
+                **text_props_inside,
+            )
+
+        # 2. Add Completion Total Annotation (if it exists)
+        if completion_total_raw > 0 and completion_edge_scaled > prompt_edge_scaled:
+            ax_tokens.text(
+                completion_edge_scaled - padding_scaled,
+                y_positions[idx_task],
+                f"C: {format_token_annotation(completion_total_raw)}",
+                **text_props_inside,
+            )
+
+        # 3. Add Grand Total Annotation (always, if total > 0)
         ax_tokens.text(
-            text_x,
+            total_edge_scaled + padding_scaled,
             y_positions[idx_task],
-            annotation,
-            va="center",
-            ha="right",  # Align text to the right
-            color="#F5F5F5",  # Light text color
-            fontsize=8,  # Smaller to fit inside bar
-            fontweight="bold",
-            zorder=8,
-            bbox=text_box,  # Add the background box
+            f"Total: {format_token_annotation(total_raw)}",
+            **text_props_outside,
         )
-        # --- END MODIFICATION 2 ---
+    # --- END MODIFICATION 3 ---
 
     # Dedicated axis keeps pass/fail squares clear of the runtime bars.
     ax_status.set_facecolor("none")
@@ -425,7 +465,10 @@ def plot_results(
         ha="right",
     )
 
-    plt.tight_layout(rect=(0, 0.05, 1, 0.88))
+    # --- MODIFICATION 4: Add padding by shrinking plot top rect ---
+    plt.tight_layout(rect=(0, 0.05, 1, 0.86))  # Was 0.88
+    # --- END MODIFICATION 4 ---
+
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(str(output), facecolor=JETBRAINS_BACKGROUND, dpi=200)
     plt.close(fig)
