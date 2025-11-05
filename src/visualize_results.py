@@ -118,21 +118,31 @@ def plot_results(
     color_cycle = build_color_cycle(len(task_ids))
     pass_colors = ["#0DFF00" if flag else "#FF318C" for flag in passed]
 
-    fig = plt.figure(figsize=(15, 9), facecolor=JETBRAINS_BACKGROUND)
+    fig = plt.figure(figsize=(20, 9), facecolor=JETBRAINS_BACKGROUND)
 
-    grid = fig.add_gridspec(
-        1, 2, width_ratios=[0.12, 1.0], wspace=0.03
-    )  # Was [0.18, 1.0], wspace=0.05
+    grid = fig.add_gridspec(1, 3, width_ratios=[0.28, 0.1, 1.0], wspace=0.08)
 
-    ax_runtime = fig.add_subplot(grid[1])
+    ax_runtime = fig.add_subplot(grid[2])
     ax_tokens = ax_runtime.twiny()
-    ax_status = fig.add_subplot(grid[0], sharey=ax_runtime)
+    ax_status = fig.add_subplot(grid[1], sharey=ax_runtime)
+    ax_info = fig.add_subplot(grid[0])
+
+    ax_info.set_facecolor(JETBRAINS_PANEL)
+    for spine in ax_info.spines.values():
+        spine.set_color("#2A2A2A")
+    ax_info.set_xticks([])
+    ax_info.set_yticks([])
+    ax_info.set_xlim(0, 1)
+    ax_info.set_ylim(0, 1)
+
+    # Keep the info panel anchored to the figure edge so text never overlaps the bars.
+    ax_info.set_anchor("W")
 
     ax_runtime.set_facecolor(JETBRAINS_PANEL)
     for spine in ax_runtime.spines.values():
         spine.set_color("#2A2A2A")
     ax_runtime.tick_params(axis="x", colors="#F5F5F5")
-    ax_runtime.tick_params(axis="y", colors="#E0E0E0", labelsize=10)
+    ax_runtime.tick_params(axis="y", colors="#E0E0E0", labelsize=11)
 
     ax_tokens.set_facecolor("none")
     ax_tokens.spines["top"].set_color("#2A2A2A")
@@ -141,7 +151,7 @@ def plot_results(
     ax_tokens.spines["right"].set_visible(False)
     ax_tokens.xaxis.set_ticks_position("top")
 
-    ax_tokens.tick_params(axis="x", colors="#CFE8FF", labelsize=9, pad=10)  # Was pad=6
+    ax_tokens.tick_params(axis="x", colors="#CFE8FF", labelsize=10, pad=10)
 
     ax_tokens.tick_params(axis="y", left=False, labelleft=False)
 
@@ -164,6 +174,10 @@ def plot_results(
         True, axis="x", linestyle="--", linewidth=0.6, color="#2E2E2E", alpha=0.8
     )
 
+    runtime_max = max(runtime) if runtime else 1.0  # Defined early for padding
+    if runtime_max <= 0:
+        runtime_max = 1.0
+
     for idx, bar in enumerate(bars):
         text_box = {
             "facecolor": "#1F1F1F",
@@ -171,8 +185,9 @@ def plot_results(
             "pad": 2,
             "edgecolor": "none",
         }
+        padding = runtime_max * 0.015
         ax_runtime.text(
-            bar.get_width() + max(bar.get_width() * 0.02, 0.05),
+            bar.get_width() + padding,
             bar.get_y() + bar.get_height() / 2,
             f"{runtime[idx]:.2f}s",
             va="center",
@@ -183,10 +198,10 @@ def plot_results(
         )
 
     token_axis_colors = [
-        "#0400FF84",
-        "#00BBF9",
-        "#9B5DE5",
-        "#A7F3EF",
+        "#0400FF",  # Dark Blue (was #0400FF84)
+        "#007ACC",  # Med Blue (was #00BBF9)
+        "#9B5DE5",  # Purple
+        "#21D789",  # Green (was #A7F3EF - too light)
     ]
     token_keys = [
         ("propose_prompt_tokens", "Prompt"),
@@ -202,9 +217,7 @@ def plot_results(
         for entry in token_usage
     ]
     max_tokens_actual = max(task_token_totals) if task_token_totals else 0.0
-    runtime_max = max(runtime) if runtime else 1.0
-    if runtime_max <= 0:
-        runtime_max = 1.0
+    # runtime_max defined earlier
 
     desired_max_tokens = max(max_tokens_actual, 1000.0)
 
@@ -283,8 +296,8 @@ def plot_results(
         legend = ax_tokens.legend(
             loc="right",
             frameon=False,
-            fontsize=9,
-            title="Token Type",  # Was "upper right", "Token usage"
+            fontsize=10,
+            title="Token Type",
         )
         legend.get_title().set_color("#F5F5F5")
         for text in legend.get_texts():
@@ -296,8 +309,8 @@ def plot_results(
     text_props_inside = {
         "va": "center",
         "ha": "right",
-        "color": "#000000",
-        "fontsize": 8,
+        "color": "#FFFFFF",
+        "fontsize": 9,
         "fontweight": "bold",
         "zorder": 8,
     }
@@ -305,7 +318,7 @@ def plot_results(
         "va": "center",
         "ha": "left",
         "color": "#CFE8FF",
-        "fontsize": 8,
+        "fontsize": 9,
         "fontweight": "bold",
         "zorder": 8,
     }
@@ -413,7 +426,7 @@ def plot_results(
     ]
     if total_tokens > 0:
         details_lines.append(
-            "Token Usage (Total): "  # Was "Tokens breakdown: "
+            "Token Usage (Total): "
             + ", ".join(
                 f"{label} {format_token_value(token_totals.get(key, 0.0))}"
                 for key, label in token_keys
@@ -422,7 +435,7 @@ def plot_results(
         )
     if timing_totals:
         details_lines.append(
-            "Time Allocation (Total): "  # Was "Timings: "
+            "Time Allocation (Total): "
             + ", ".join(
                 f"{name.replace('t_', '').replace('_sec', '')} {value:.2f}s"
                 for name, value in timing_totals.items()
@@ -436,28 +449,42 @@ def plot_results(
     model_banner = model_name if model_name else "Model not provided"
     fig.text(
         0.5,
-        0.96,
+        0.98,
         "JetBrains LLM Eval Snapshot",
         color="#FFFFFF",
         fontsize=18,
         weight="bold",
         ha="center",
+        va="top",
     )
     fig.text(
         0.5,
-        0.92,
+        0.94,
         model_banner,
         color="#FFFFFF",
         fontsize=15,
         ha="center",
+        va="top",
     )
-    fig.text(
+    ax_info.text(
         0.02,
-        0.88,
+        0.96,
+        "Run Overview",
+        color="#FFFFFF",
+        fontsize=14,
+        fontweight="bold",
+        va="top",
+        transform=ax_info.transAxes,
+    )
+    ax_info.text(
+        0.02,
+        0.92,
         "\n".join(details_lines),
-        color="#3DDCFF",
+        color="#67D5FF",
         fontsize=12,
         linespacing=1.3,
+        va="top",
+        transform=ax_info.transAxes,
     )
 
     fig.text(
@@ -469,7 +496,7 @@ def plot_results(
         ha="right",
     )
 
-    plt.tight_layout(rect=(0, 0.65, 1, 0.85))  # Was 0.86
+    fig.subplots_adjust(left=0.05, right=0.98, top=0.9, bottom=0.12)
 
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(str(output), facecolor=JETBRAINS_BACKGROUND, dpi=200)
