@@ -389,10 +389,11 @@ def plot_results(
             prompt_text.set_path_effects(token_label_shadow)
 
         if completion_total_raw > 0 and completion_edge_scaled > prompt_edge_scaled:
+            completion_offset_scaled = padding_scaled * 0.5
             completion_text = ax_tokens.text(
-                completion_edge_scaled - padding_scaled,
+                completion_edge_scaled - completion_offset_scaled,
                 y_positions[idx_task],
-                f"C: {format_token_value(completion_total_raw)}",  # Use short formatter
+                f"  C: {format_token_value(completion_total_raw)}",  # Use short formatter with padding
                 **text_props_inside,
             )
             completion_text.set_path_effects(token_label_shadow)
