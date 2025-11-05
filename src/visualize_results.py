@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
 
 # JetBrains brand-inspired palette for a bold dark theme
 JETBRAINS_BACKGROUND = "#0A0A0A"
@@ -170,30 +171,52 @@ def plot_results(
     ]
     if token_usage is None:
         token_usage = [{} for _ in task_ids]
-    cumulative = [0.0 for _ in task_ids]
+
+    task_token_totals = [
+        sum(float(entry.get(key, 0.0)) for key, _ in token_keys)
+        for entry in token_usage
+    ]
+    max_tokens_actual = max(task_token_totals) if task_token_totals else 0.0
+    runtime_max = max(runtime) if runtime else 1.0
+    token_ratio = 0.7
+    if max_tokens_actual > 0.0:
+        token_scale = (runtime_max * token_ratio) / max_tokens_actual
+        token_scale = min(token_scale, 1.0)
+    else:
+        token_scale = 1.0
+
+    cumulative_scaled = [0.0 for _ in task_ids]
+    token_segments: List[List[float]] = []
     for idx_key, (key, label) in enumerate(token_keys):
-        series = [float(entry.get(key, 0.0)) for entry in token_usage]
-        if not any(series):
+        series_actual = [float(entry.get(key, 0.0)) for entry in token_usage]
+        if not any(series_actual):
             continue
+        series_scaled = [value * token_scale for value in series_actual]
         ax_tokens.barh(
             task_ids,
-            series,
-            left=cumulative,
+            series_scaled,
+            left=cumulative_scaled,
             color=token_axis_colors[idx_key % len(token_axis_colors)],
             edgecolor="none",
-            alpha=0.7,
+            alpha=0.65,
             label=label,
-            height=0.4,
+            height=0.25,
             zorder=2,
         )
-        cumulative = [cum + val for cum, val in zip(cumulative, series)]
+        token_segments.append(series_actual)
+        cumulative_scaled = [
+            cum + scaled for cum, scaled in zip(cumulative_scaled, series_scaled)
+        ]
 
-    max_tokens = max(cumulative) if cumulative else 0.0
-    ax_tokens.set_xlim(0, max_tokens * 1.1 if max_tokens else 1.0)
+    ax_tokens.set_xlim(0, runtime_max * token_ratio if runtime_max else 1.0)
     ax_tokens.set_xlabel("Tokens", color="#CFE8FF", labelpad=8)
     ax_tokens.grid(
         True, axis="x", linestyle="--", linewidth=0.5, color="#3A3A3A", alpha=0.7
     )
+    if token_scale > 0:
+        ax_tokens.xaxis.set_major_formatter(
+            FuncFormatter(lambda value, _: f"{value / token_scale:.0f}")
+        )
 
     legend = ax_tokens.legend(
         loc="upper right",
@@ -212,6 +235,9 @@ def plot_results(
     total_runtime = sum(runtime)
     total_pass = sum(1 for flag in passed if flag)
     total_fail = len(passed) - total_pass
+    avg_runtime = total_runtime / len(runtime) if runtime else 0.0
+    avg_iters = sum(iters) / len(iters) if iters else 0.0
+    max_iters = max(iters) if iters else 0
 
     # Aggregate metrics for summary text
     token_totals = {
@@ -227,10 +253,6 @@ def plot_results(
             for key in timing_keys:
                 timing_totals[key] += float(entry.get(key, 0.0))
     timing_totals = {k: v for k, v in timing_totals.items() if v}
-
-    avg_runtime = total_runtime / len(runtime) if runtime else 0.0
-    avg_iters = sum(iters) / len(iters) if iters else 0.0
-    max_iters = max(iters) if iters else 0
 
     details_lines = []
     if model_name:
@@ -267,6 +289,34 @@ def plot_results(
         )
     if iters:
         details_lines.append(f"Avg iters: {avg_iters:.1f} (max {max_iters})")
+
+    # Token value annotations
+    for idx_task, _ in enumerate(task_ids):
+        base_scaled = 0.0
+        for series in token_segments:
+            value = series[idx_task]
+            if value <= 0:
+                continue
+            scaled_value = value * token_scale
+            center = base_scaled + scaled_value / 2
+            ax_tokens.text(
+                center,
+                idx_task,
+                f"{value:.0f}",
+                va="center",
+                ha="center",
+                color="#0B0B0B",
+                fontsize=8,
+                fontweight="bold",
+                bbox={
+                    "facecolor": "#CFE8FF",
+                    "alpha": 0.8,
+                    "edgecolor": "none",
+                    "boxstyle": "round,pad=0.15",
+                },
+                zorder=3,
+            )
+            base_scaled += scaled_value
 
     fig.text(
         0.5,
