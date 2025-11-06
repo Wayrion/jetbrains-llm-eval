@@ -79,7 +79,7 @@ uv run python src/visualize_results.py \
 - `--model` (str) selects the Hugging Face model ID or alias.
 - `--max` (int) limits the number of benchmark problems processed.
 - `--out` (path) writes per-task JSONL results to disk.
-- `--iters` (int) enables optional repair iterations beyond the first execution (default 0 for strict pass@1).
+- `--iters` (int) enables optional repair iterations beyond the first execution (default 0 for pass@1, other values for pass@k metric).
 - `--sandbox {process,docker}` switches between the local subprocess sandbox and a Docker-based variant.
 - `--resume` resumes from a prior results file, skipping already-completed tasks.
 - `--visualize` renders an aggregated PNG report once evaluation finishes.

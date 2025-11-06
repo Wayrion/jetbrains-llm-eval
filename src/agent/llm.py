@@ -13,7 +13,7 @@ DEFAULT_MODEL = os.environ.get("HF_MODEL", "Qwen/Qwen2.5-0.5B-Instruct")
 # Common short aliases mapped to valid Hugging Face repo IDs
 _MODEL_ALIASES = {
     # Qwen family
-    "qwen3-0.6b": "Qwen/Qwen2.5-0.5B-Instruct",  # closest available instruct size
+    "qwen3-0.6b": "Qwen/Qwen2.5-0.5B-Instruct",
     "qwen-0.5b": "Qwen/Qwen2.5-0.5B-Instruct",
     "qwen2.5-0.5b": "Qwen/Qwen2.5-0.5B-Instruct",
     "qwen2.5-coder-0.5b": "Qwen/Qwen2.5-Coder-0.5B-Instruct",
