@@ -5,7 +5,7 @@ import os
 import time
 from dataclasses import dataclass
 import logging
-from typing import Dict, Any, Optional, Iterable, cast, List
+from typing import Dict, Any, Optional, Iterable, cast, List, TextIO
 from itertools import islice
 
 from datasets import load_dataset
@@ -198,82 +198,123 @@ def run_pass_at_1(
     elif existing_map:
         logging.info("All tasks already completed in existing results; nothing to do.")
 
-    for j in jobs:
-        task_key = str(j["task_id"])
-        if task_key in existing_map:
-            res = dict(existing_map[task_key])
-            if "model" not in res:
-                res["model"] = resolved_model_id
-            if (
-                cfg.model
-                and res.get("model_alias") is None
-                and cfg.model != res.get("model")
-            ):
-                res["model_alias"] = cfg.model
-            logging.info(
-                "[%s] skipping (resume) passed=%s", j["task_id"], res.get("passed")
-            )
-            results_map[task_key] = res
-            continue
+    output_handle: Optional[TextIO] = None
+    append_newline_before_first_write = False
+    try:
+        if out_path:
+            parent = os.path.dirname(out_path)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
 
-        assert graph is not None and llm is not None and agent_cfg is not None
-        logging.info("[%s] starting", j["task_id"])
-        state = {
-            "llm": llm,
-            "config": agent_cfg,
-            "prompt": j["prompt"],
-            "tests": j["tests"],
-            "entry_point": j["entry_point"],
-            "iters": 0,
-        }
-        t0 = time.time()
-        out_state = graph.invoke(state)
-        dt = time.time() - t0
-        last = out_state.get("last_result", {})
-        passed = bool(last.get("passed"))
-        res = {
-            "task_id": j["task_id"],
-            "passed": passed,
-            "exit_code": last.get("exit_code"),
-            "stderr": last.get("stderr"),
-            "stdout": last.get("stdout"),
-            "runtime_sec": dt,
-            "completion": out_state.get("final_code") or out_state.get("code"),
-        }
-        # Preserve normalized/alias pair so downstream tooling can label plots precisely
-        res["model"] = resolved_model_id
-        if cfg.model and cfg.model != resolved_model_id:
-            res["model_alias"] = cfg.model
-        metrics = out_state.get("metrics") or {}
-        if metrics:
-            res["timings_sec"] = {
-                k: float(metrics.get(k, 0.0))
-                for k in ("t_propose_sec", "t_execute_sec", "t_reflect_sec")
+            if pending_jobs:
+                mode = "a" if existing_map else "w"
+                if mode == "a" and os.path.exists(out_path):
+                    try:
+                        with open(out_path, "rb") as existing_file:
+                            existing_file.seek(0, os.SEEK_END)
+                            if existing_file.tell() > 0:
+                                existing_file.seek(-1, os.SEEK_END)
+                                last_char = existing_file.read(1)
+                                append_newline_before_first_write = last_char not in (
+                                    b"\n",
+                                    b"\r",
+                                )
+                    except OSError:
+                        append_newline_before_first_write = False
+                output_handle = open(out_path, mode, encoding="utf-8")
+            else:
+                if not existing_map and not os.path.exists(out_path):
+                    with open(out_path, "w", encoding="utf-8"):
+                        pass
+
+        for j in jobs:
+            task_key = str(j["task_id"])
+            if task_key in existing_map:
+                res = dict(existing_map[task_key])
+                if "model" not in res:
+                    res["model"] = resolved_model_id
+                if (
+                    cfg.model
+                    and res.get("model_alias") is None
+                    and cfg.model != res.get("model")
+                ):
+                    res["model_alias"] = cfg.model
+                logging.info(
+                    "[%s] skipping (resume) passed=%s",
+                    j["task_id"],
+                    res.get("passed"),
+                )
+                results_map[task_key] = res
+                continue
+
+            assert graph is not None and llm is not None and agent_cfg is not None
+            logging.info("[%s] starting", j["task_id"])
+            state = {
+                "llm": llm,
+                "config": agent_cfg,
+                "prompt": j["prompt"],
+                "tests": j["tests"],
+                "entry_point": j["entry_point"],
+                "iters": 0,
             }
-            token_keys = [
-                "propose_prompt_tokens",
-                "propose_completion_tokens",
-                "reflect_prompt_tokens",
-                "reflect_completion_tokens",
-            ]
-            token_usage = {
-                k: int(metrics.get(k, 0)) for k in token_keys if k in metrics
+            t0 = time.time()
+            out_state = graph.invoke(state)
+            dt = time.time() - t0
+            last = out_state.get("last_result", {})
+            passed = bool(last.get("passed"))
+            res = {
+                "task_id": j["task_id"],
+                "passed": passed,
+                "exit_code": last.get("exit_code"),
+                "stderr": last.get("stderr"),
+                "stdout": last.get("stdout"),
+                "runtime_sec": dt,
+                "completion": out_state.get("final_code") or out_state.get("code"),
             }
-            if token_usage:
-                res["token_usage"] = token_usage
-        res["iters"] = int(out_state.get("iters", 0))
-        results_map[task_key] = res
-        logging.info(
-            "[%s] passed=%s time=%.2fs breakdown=%s",
-            j["task_id"],
-            passed,
-            round(dt, 2),
-            {
-                "propose": round(float(metrics.get("t_propose_sec", 0.0)), 2),
-                "execute": round(float(metrics.get("t_execute_sec", 0.0)), 2),
-                "reflect": round(float(metrics.get("t_reflect_sec", 0.0)), 2),
-            },
-        )
+            # Preserve normalized/alias pair so downstream tooling can label plots precisely
+            res["model"] = resolved_model_id
+            if cfg.model and cfg.model != resolved_model_id:
+                res["model_alias"] = cfg.model
+            metrics = out_state.get("metrics") or {}
+            if metrics:
+                res["timings_sec"] = {
+                    k: float(metrics.get(k, 0.0))
+                    for k in ("t_propose_sec", "t_execute_sec", "t_reflect_sec")
+                }
+                token_keys = [
+                    "propose_prompt_tokens",
+                    "propose_completion_tokens",
+                    "reflect_prompt_tokens",
+                    "reflect_completion_tokens",
+                ]
+                token_usage = {
+                    k: int(metrics.get(k, 0)) for k in token_keys if k in metrics
+                }
+                if token_usage:
+                    res["token_usage"] = token_usage
+            res["iters"] = int(out_state.get("iters", 0))
+            results_map[task_key] = res
+            if output_handle is not None:
+                if append_newline_before_first_write:
+                    output_handle.write("\n")
+                    append_newline_before_first_write = False
+                output_handle.write(json.dumps(res) + "\n")
+                output_handle.flush()
+            logging.info(
+                "[%s] passed=%s time=%.2fs breakdown=%s",
+                j["task_id"],
+                passed,
+                round(dt, 2),
+                {
+                    "propose": round(float(metrics.get("t_propose_sec", 0.0)), 2),
+                    "execute": round(float(metrics.get("t_execute_sec", 0.0)), 2),
+                    "reflect": round(float(metrics.get("t_reflect_sec", 0.0)), 2),
+                },
+            )
+    finally:
+        if output_handle is not None:
+            output_handle.flush()
+            output_handle.close()
 
     # Assemble ordered results following the dataset order
     ordered_results: List[Dict[str, Any]] = []
@@ -297,11 +338,6 @@ def run_pass_at_1(
     else:
         total = len(ordered_results)
     pass_at_1 = n_pass / total if total > 0 else 0.0
-
-    if out_path:
-        with open(out_path, "w", encoding="utf-8") as f:
-            for r in ordered_results:
-                f.write(json.dumps(r) + "\n")
 
     logging.info("pass@1 = %.4f (%s/%s)", pass_at_1, n_pass, total)
     payload: Dict[str, Any] = {

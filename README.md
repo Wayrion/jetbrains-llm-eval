@@ -5,7 +5,7 @@ This repository packages a LangGraph-based ReAct agent that repairs buggy Python
 ### Key Capabilities
 - Run a deterministic ReAct-style loop (propose, execute, optional reflect) with LangGraph.
 - Execute model-produced code in an isolated sandbox with CPU, memory, and network safeguards.
-- Compute pass@1 on the Python Humaneval subset, optionally resuming previous runs and visualizing outcomes.
+- Compute pass@1 on the Python Humaneval subset, streaming per-task JSONL updates for robust resume support and optional visualization.
 
 ### Requirements
 - Python 3.11 or newer.
@@ -81,7 +81,7 @@ uv run python src/visualize_results.py \
 - `--out` (path) writes per-task JSONL results to disk.
 - `--iters` (int) enables optional repair iterations beyond the first execution (default 0 for pass@1, other values for pass@k metric).
 - `--sandbox {process,docker}` switches between the local subprocess sandbox and a Docker-based variant.
-- `--resume` resumes from a prior results file, skipping already-completed tasks.
+- `--resume` resumes from a prior results file, skipping already-completed tasks. Results are appended after each benchmark item, so interrupted runs can be restarted without rework.
 - `--visualize` renders an aggregated PNG report once evaluation finishes.
 - `--verbose` and `--debug` increase logging detail for troubleshooting.
 
