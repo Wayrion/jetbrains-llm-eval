@@ -118,7 +118,7 @@ Each JSONL record contains:
 Run with `--verbose` to view per-task summaries or `--debug` for deeper instrumentation during agent execution and sandbox runs.
 
 ## Troubleshooting
-- **Torch missing or incompatible:** Install a platform-specific wheel from https://pytorch.org/get-started/locally/ before invoking `run.py`.
+- **Torch missing or incompatible:** Install a platform-specific wheel from https://pytorch.org/get-started/locally before invoking `run.py`.
 - **CUDA unavailable:** The model automatically falls back to CPU; consider smaller models if generation is slow.
 - **Dataset load timeouts:** Use `--dataset-path ./dataset/humaneval_py.parquet` to bypass repeated downloads.
 - **Docker permission errors:** Ensure the user can reach the Docker daemon or set `DOCKER_BIN="sudo docker"`.
