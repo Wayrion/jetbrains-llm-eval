@@ -6,6 +6,7 @@ This repository packages a LangGraph-based ReAct agent that repairs buggy Python
 - Run a deterministic ReAct-style loop (propose, execute, optional reflect) with LangGraph.
 - Execute model-produced code in an isolated sandbox with CPU, memory, and network safeguards.
 - Compute pass@1 on the Python Humaneval subset, streaming per-task JSONL updates for robust resume support and optional visualization.
+- Optionally, calculate pass@k by changing the `--iters k` flag
 
 ### Requirements
 - Python 3.11 or newer.
