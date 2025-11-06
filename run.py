@@ -129,6 +129,12 @@ def main() -> None:
         help="Max problems to evaluate",
     )
     parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.0,
+        help="Sampling temperature passed to the chat model and agent.",
+    )
+    parser.add_argument(
         "--iters",
         dest="iters",
         type=int,
@@ -217,7 +223,7 @@ def main() -> None:
     cfg = EvalConfig(
         model=args.model,
         max_problems=args.max_problems,
-        temperature=0.0,
+        temperature=float(args.temperature),
         max_new_tokens=512,
         dataset_path=args.dataset_path or None,
         iters=max(0, int(args.iters)),
