@@ -1,19 +1,22 @@
+"""Execution sandboxes for running model proposals under resource limits."""
+
 from __future__ import annotations
 
-import os
-import sys
-import textwrap
-import tempfile
-import subprocess
-import resource
-import uuid
-import shutil
-import shlex
 import logging
-from typing import Dict, Any, Callable
+import os
+import resource
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+import textwrap
+import uuid
+from pathlib import Path
+from typing import Any, Callable
 
 
-SandboxRunner = Callable[[str, str, str, int], Dict[str, Any]]
+SandboxRunner = Callable[[str, str, str, int], dict[str, Any]]
 
 
 def _build_runner_script(entry_point: str) -> str:
@@ -64,34 +67,32 @@ def _build_runner_script(entry_point: str) -> str:
 
 
 def _prepare_sandbox_payload(
-    tmp_dir: str, candidate_code: str, tests_code: str, entry_point: str
-) -> str:
-    cand_path = os.path.join(tmp_dir, "candidate.py")
-    tests_path = os.path.join(tmp_dir, "tests.py")
-    runner_path = os.path.join(tmp_dir, "runner.py")
+    tmp_dir: Path, candidate_code: str, tests_code: str, entry_point: str
+) -> Path:
+    cand_path = tmp_dir / "candidate.py"
+    tests_path = tmp_dir / "tests.py"
+    runner_path = tmp_dir / "runner.py"
 
-    with open(cand_path, "w", encoding="utf-8") as f:
-        f.write(candidate_code)
-    with open(tests_path, "w", encoding="utf-8") as f:
-        f.write(tests_code)
-    with open(runner_path, "w", encoding="utf-8") as f:
-        f.write(_build_runner_script(entry_point))
+    cand_path.write_text(candidate_code, encoding="utf-8")
+    tests_path.write_text(tests_code, encoding="utf-8")
+    runner_path.write_text(_build_runner_script(entry_point), encoding="utf-8")
     return runner_path
 
 
 def run_python_with_tests(
     candidate_code: str, tests_code: str, entry_point: str, timeout_s: int = 10
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Execute user code plus tests in an isolated subprocess and capture pass/fail and logs.
     """
     with tempfile.TemporaryDirectory(prefix="sandbox_") as tmp:
+        tmp_path = Path(tmp)
         runner_path = _prepare_sandbox_payload(
-            tmp, candidate_code, tests_code, entry_point
+            tmp_path, candidate_code, tests_code, entry_point
         )
 
         env = os.environ.copy()
-        env["PYTHONPATH"] = tmp
+        env["PYTHONPATH"] = str(tmp_path)
         env["SANDBOX_TIMEOUT"] = str(timeout_s)
 
         # Preexec to set rlimits
@@ -105,7 +106,7 @@ def run_python_with_tests(
             resource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))
 
         proc = subprocess.Popen(
-            [sys.executable, "-I", "-B", runner_path],
+            [sys.executable, "-I", "-B", str(runner_path)],
             cwd=tmp,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -134,7 +135,7 @@ def run_python_with_tests(
 
 def run_python_in_docker(
     candidate_code: str, tests_code: str, entry_point: str, timeout_s: int = 10
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Execute code inside a temporary Python Docker container."""
 
     logger = logging.getLogger(__name__)
@@ -156,7 +157,8 @@ def run_python_in_docker(
     container_name = f"sandbox_{uuid.uuid4().hex}"
 
     with tempfile.TemporaryDirectory(prefix="sandbox_") as tmp:
-        _prepare_sandbox_payload(tmp, candidate_code, tests_code, entry_point)
+        tmp_path = Path(tmp)
+        _prepare_sandbox_payload(tmp_path, candidate_code, tests_code, entry_point)
 
         cmd = [
             docker_bin,
@@ -262,7 +264,7 @@ def run_python_in_docker(
         }
 
 
-_SANDBOX_RUNNERS: Dict[str, SandboxRunner] = {
+_SANDBOX_RUNNERS: dict[str, SandboxRunner] = {
     "process": run_python_with_tests,
     "docker": run_python_in_docker,
 }

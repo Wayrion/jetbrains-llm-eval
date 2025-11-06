@@ -1,9 +1,9 @@
 [project]
 name = "jetbrains-llm-eval"
-version = "0.1.0"
-description = "Add your description here"
+version = "1.0.0"
+description = "ReAct-style LangGraph agent for Humaneval pass@1 benchmarking"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.11"
 dependencies = [
     "datasets>=4.3.0",
     "langchain-core>=1.0.2",
@@ -13,3 +13,7 @@ dependencies = [
     "torch>=2.9.0",
     "transformers>=4.57.1",
 ]
+
+[project.urls]
+homepage = "https://github.com/Wayrion/jetbrains-llm-eval"
+repository = "https://github.com/Wayrion/jetbrains-llm-eval"

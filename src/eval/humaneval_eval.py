@@ -1,17 +1,23 @@
+"""Humaneval pass@1 evaluation harness coordinating the ReAct agent."""
+
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass
-import logging
-from typing import Dict, Any, Optional, Iterable, cast, List, TextIO
 from itertools import islice
+from pathlib import Path
+from typing import Any, Iterable, Optional, TextIO, cast
 
 from datasets import load_dataset
 
-from ..agent import HFChatModel, build_graph, AgentConfig
+from ..agent import AgentConfig, HFChatModel, build_graph
 from ..agent.llm import _normalize_model_id
+
+
+LOG = logging.getLogger(__name__)
 
 
 @dataclass
@@ -30,14 +36,13 @@ class EvalConfig:
     sandbox_timeout: int = int(os.environ.get("SANDBOX_TIMEOUT", "10"))
 
 
-def extract_fields(sample: Dict[str, Any]) -> Dict[str, str]:
-    """
-    Humanevalpack samples typically have fields: prompt, test, entry_point (and sometimes imports).
-    We normalize to the strings we need.
-    """
-    prompt = sample.get("prompt") or sample.get("question") or ""
-    tests = sample.get("test") or sample.get("tests") or sample.get("test_code") or ""
-    entry_point = sample.get("entry_point") or sample.get("entrypoint") or ""
+def extract_fields(sample: dict[str, object]) -> dict[str, str]:
+    """Return standardized prompt/test/entry point fields from dataset rows."""
+    prompt = str(sample.get("prompt") or sample.get("question") or "")
+    tests = str(
+        sample.get("test") or sample.get("tests") or sample.get("test_code") or ""
+    )
+    entry_point = str(sample.get("entry_point") or sample.get("entrypoint") or "")
     return {"prompt": prompt, "tests": tests, "entry_point": entry_point}
 
 
@@ -57,38 +62,35 @@ def _load_humaneval_with_retries(repo: str, subset: str, retries: int, verbose: 
         try:
             ds = load_dataset(repo, subset)
             return ds["test"]
-        except Exception as e:  # noqa: BLE001 - user environment/network issues
-            last_err = e
-            logging.info("Dataset load attempt %s failed: %s", attempt, e)
+        except Exception as exc:  # noqa: BLE001 - user environment/network issues
+            last_err = exc
+            LOG.info("Dataset load attempt %s failed: %s", attempt, exc)
             time.sleep(min(2**attempt, 8))
 
     # Fallback: try streaming the test split directly to avoid large metadata calls
     try:
-        logging.info(
-            "Falling back to streaming dataset split due to repeated timeouts…"
-        )
+        LOG.info("Falling back to streaming dataset split due to repeated timeouts…")
         split = load_dataset(repo, subset, split="test", streaming=True)
         return split
-    except Exception as e:  # noqa: BLE001
-        logging.info("Streaming fallback failed: %s", e)
+    except Exception as exc:  # noqa: BLE001
+        LOG.info("Streaming fallback failed: %s", exc)
         # Re-raise last error from non-streaming attempts if available
-        raise (last_err or e)
+        raise (last_err or exc)
 
 
-def _project_root() -> str:
+def _project_root() -> Path:
     # src/eval/humaneval_eval.py -> project root two levels up
-    here = os.path.dirname(__file__)
-    return os.path.abspath(os.path.join(here, "..", ".."))
+    return Path(__file__).resolve().parents[2]
 
 
 def _load_local_dataset_if_available(path: Optional[str], verbose: bool):
     # Prefer a local parquet if provided or at dataset/humaneval_py.parquet
-    candidate = path
-    if not candidate:
-        candidate = os.path.join(_project_root(), "dataset", "humaneval_py.parquet")
-    if candidate and os.path.exists(candidate):
-        logging.info("Loading local dataset parquet at %s", candidate)
-        dsd = load_dataset("parquet", data_files={"test": candidate})
+    candidate = (
+        Path(path) if path else _project_root() / "dataset" / "humaneval_py.parquet"
+    )
+    if candidate.exists():
+        LOG.info("Loading local dataset parquet at %s", candidate)
+        dsd = load_dataset("parquet", data_files={"test": str(candidate)})
         return dsd["test"]
     return None
 
@@ -97,10 +99,10 @@ def run_pass_at_1(
     cfg: EvalConfig,
     out_path: Optional[str] = None,
     verbose: bool = False,
-    existing_results: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, Any]:
-    logging.info("Starting Humaneval pass@1 evaluation…")
-    logging.info("Sandbox mode: %s", cfg.sandbox)
+    existing_results: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, Any]:
+    LOG.info("Starting Humaneval pass@1 evaluation…")
+    LOG.info("Sandbox mode: %s", cfg.sandbox)
     # Prefer local dataset if present
     split = _load_local_dataset_if_available(cfg.dataset_path, verbose)
     if split is None:
@@ -134,7 +136,7 @@ def run_pass_at_1(
         iterator = cast(Iterable[Any], split)
 
     # Build a plain list of jobs for potential parallel execution
-    jobs: List[Dict[str, Any]] = []
+    jobs: list[dict[str, Any]] = []
     if hasattr(split, "__iter__"):
         for idx, sample in enumerate(iterator):
             meta = extract_fields(sample)
@@ -151,7 +153,7 @@ def run_pass_at_1(
         # Shouldn't happen, but keep a safe default
         pass
 
-    existing_map: Dict[str, Dict[str, Any]] = {}
+    existing_map: dict[str, dict[str, Any]] = {}
     if existing_results:
         for item in existing_results:
             task_id = item.get("task_id")
@@ -159,7 +161,7 @@ def run_pass_at_1(
                 continue
             existing_map[str(task_id)] = item
 
-    results_map: Dict[str, Dict[str, Any]] = {}
+    results_map: dict[str, dict[str, Any]] = {}
 
     # Determine which jobs still need to run
     pending_jobs = [job for job in jobs if str(job["task_id"]) not in existing_map]
@@ -188,23 +190,23 @@ def run_pass_at_1(
     )
 
     if pending_jobs and existing_map:
-        logging.info(
+        LOG.info(
             "Resuming run: %s task(s) will be executed, %s already completed.",
             len(pending_jobs),
             len(existing_map),
         )
     elif pending_jobs:
-        logging.info("Starting fresh run with %s task(s).", len(pending_jobs))
+        LOG.info("Starting fresh run with %s task(s).", len(pending_jobs))
     elif existing_map:
-        logging.info("All tasks already completed in existing results; nothing to do.")
+        LOG.info("All tasks already completed in existing results; nothing to do.")
 
     output_handle: Optional[TextIO] = None
     append_newline_before_first_write = False
     try:
         if out_path:
-            parent = os.path.dirname(out_path)
+            parent = Path(out_path).parent
             if parent:
-                os.makedirs(parent, exist_ok=True)
+                parent.mkdir(parents=True, exist_ok=True)
 
             if pending_jobs:
                 mode = "a" if existing_map else "w"
@@ -239,7 +241,7 @@ def run_pass_at_1(
                     and cfg.model != res.get("model")
                 ):
                     res["model_alias"] = cfg.model
-                logging.info(
+                LOG.info(
                     "[%s] skipping (resume) passed=%s",
                     j["task_id"],
                     res.get("passed"),
@@ -248,7 +250,7 @@ def run_pass_at_1(
                 continue
 
             assert graph is not None and llm is not None and agent_cfg is not None
-            logging.info("[%s] starting", j["task_id"])
+            LOG.info("[%s] starting", j["task_id"])
             state = {
                 "llm": llm,
                 "config": agent_cfg,
@@ -300,7 +302,7 @@ def run_pass_at_1(
                     append_newline_before_first_write = False
                 output_handle.write(json.dumps(res) + "\n")
                 output_handle.flush()
-            logging.info(
+            LOG.info(
                 "[%s] passed=%s time=%.2fs breakdown=%s",
                 j["task_id"],
                 passed,
@@ -317,8 +319,8 @@ def run_pass_at_1(
             output_handle.close()
 
     # Assemble ordered results following the dataset order
-    ordered_results: List[Dict[str, Any]] = []
-    missing_task_ids: List[Any] = []
+    ordered_results: list[dict[str, Any]] = []
+    missing_task_ids: list[Any] = []
     for j in jobs:
         task_key = str(j["task_id"])
         if task_key in results_map:
@@ -327,7 +329,7 @@ def run_pass_at_1(
             missing_task_ids.append(j["task_id"])
 
     if missing_task_ids:
-        logging.error(
+        LOG.error(
             "Missing results for task ids: %s", ", ".join(map(str, missing_task_ids))
         )
 
@@ -339,8 +341,8 @@ def run_pass_at_1(
         total = len(ordered_results)
     pass_at_1 = n_pass / total if total > 0 else 0.0
 
-    logging.info("pass@1 = %.4f (%s/%s)", pass_at_1, n_pass, total)
-    payload: Dict[str, Any] = {
+    LOG.info("pass@1 = %.4f (%s/%s)", pass_at_1, n_pass, total)
+    payload: dict[str, Any] = {
         "pass@1": pass_at_1,
         "n": total,
         "model": resolved_model_id,

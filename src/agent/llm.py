@@ -1,10 +1,13 @@
+"""Lightweight wrapper around Hugging Face chat models used by the agent."""
+
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import List, Dict, Optional, Any
+from typing import Any, Optional
 
-from transformers import AutoTokenizer, AutoModelForCausalLM, GenerationConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 
 
 DEFAULT_MODEL = os.environ.get("HF_MODEL", "Qwen/Qwen2.5-0.5B-Instruct")
@@ -22,17 +25,18 @@ _MODEL_ALIASES = {
 
 
 def _normalize_model_id(model: str) -> str:
+    """Return a canonical Hugging Face repo ID for a short-hand alias."""
     key = (model or "").strip()
     key_lower = key.lower()
     return _MODEL_ALIASES.get(key_lower, key)
 
 
-def _apply_chat_template_fallback(messages: List[Dict[str, str]]) -> str:
-    # Simple prompt builder if tokenizer.apply_chat_template is not available
-    parts = []
-    for m in messages:
-        role = m.get("role", "user")
-        content = m.get("content", "")
+def _apply_chat_template_fallback(messages: Sequence[dict[str, str]]) -> str:
+    """Construct a chat transcript when a tokenizer lacks template support."""
+    parts: list[str] = []
+    for message in messages:
+        role = message.get("role", "user")
+        content = message.get("content", "")
         if role == "system":
             parts.append(f"[SYSTEM]\n{content}\n")
         elif role == "user":
@@ -45,6 +49,8 @@ def _apply_chat_template_fallback(messages: List[Dict[str, str]]) -> str:
 
 @dataclass
 class HFChatModel:
+    """Thin convenience wrapper that tracks token usage for each invocation."""
+
     model: str = DEFAULT_MODEL
     temperature: float = 0.0
     top_p: float = 1.0
@@ -65,15 +71,15 @@ class HFChatModel:
             device_map=self.device_map,
         )
         # Holds usage stats from the last generation
-        self.last_usage: Dict[str, Any] = {}
+        self.last_usage: dict[str, Any] = {}
 
     def invoke(
-        self, messages: List[Dict[str, str]], stop: Optional[List[str]] = None
+        self, messages: Sequence[dict[str, str]], stop: Optional[Sequence[str]] = None
     ) -> str:
         # Prefer the tokenizer's chat template when available
         if hasattr(self.tokenizer, "apply_chat_template"):
             inputs = self.tokenizer.apply_chat_template(
-                messages,
+                list(messages),
                 add_generation_prompt=True,
                 tokenize=True,
                 return_tensors="pt",
@@ -153,8 +159,8 @@ class HFChatModel:
 
         # Apply string-based stop sequences if provided
         if stop:
-            cut_idx = min(
-                [(text.find(s) if text.find(s) != -1 else len(text)) for s in stop]
-            )
-            text = text[:cut_idx]
+            stop_positions = [text.find(sequence) for sequence in stop]
+            valid_positions = [pos for pos in stop_positions if pos != -1]
+            if valid_positions:
+                text = text[: min(valid_positions)]
         return text.strip()

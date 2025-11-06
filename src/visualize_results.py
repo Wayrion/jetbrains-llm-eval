@@ -1,3 +1,5 @@
+"""Generate JetBrains-themed visual summaries for evaluation runs."""
+
 import argparse
 import json
 import math

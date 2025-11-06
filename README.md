@@ -23,7 +23,7 @@ This repository packages a LangGraph-based ReAct agent that repairs buggy Python
 	 pip install uv
 	 uv venv
 	 source .venv/bin/activate
-	 uv pip install -r requirements.txt
+	 uv pip install .
 	 ```
 
 2. **Stage the Humaneval dataset (optional but recommended)**
@@ -52,7 +52,7 @@ uv run run.py \
 	--model qwen3-0.6b \
 	--dataset-path ./dataset/bogus.parquet \
 	--max 5 \
-	--out ./results/bogus_results.jsonl \
+	--out ./results/bogus.jsonl \
 	--verbose \
 	--visualize
 
@@ -70,6 +70,10 @@ uv run python src/visualize_results.py \
 	--input results/results.jsonl \
 	--output results/results.png
 ```
+
+### Synthetic Sanity Benchmark
+
+Large language models remain partially opaque systems, so the project ships with a synthetic parquet (`dataset/bogus.parquet`) that is intentionally unwinnable: every task is constructed to fail regardless of the model output. Running the CLI against this split provides a fast regression check that the evaluation pipeline surfaces failures correctly and that any reported pass@1 improvements on the real Humaneval data are plausible.
 
 ## Results Snapshot
 
@@ -95,6 +99,7 @@ uv run python src/visualize_results.py \
 - Blocks outbound networking and restricts filesystem access to the sandbox workspace.
 - Supports a Docker backend (`--sandbox docker`) with configurable image, CPU, memory, and PID limits via environment variables (`SANDBOX_DOCKER_IMAGE`, `SANDBOX_DOCKER_CPUS`, `SANDBOX_DOCKER_MEMORY`).
 - Monitors container lifecycle via `docker events` if needed.
+- Run `sudo docker events --filter type=container --format '{{.Time}}  {{.Status}}  {{.Actor.Attributes.name}}'` to stream the lifecycle of the container
 
 ## Project Layout
 - `src/agent/llm.py`: lightweight Transformers chat wrapper that handles model aliases and token accounting.

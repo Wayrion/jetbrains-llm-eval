@@ -1,14 +1,19 @@
+"""ReAct-style LangGraph agent that coordinates LLM proposals and sandbox runs."""
+
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Dict, Any, List, TypedDict, NotRequired
-import time
 import logging
+import time
+from dataclasses import dataclass
+from typing import Any, Dict, List, NotRequired, TypedDict
 
 from langgraph.graph import StateGraph, END
 
 from .llm import HFChatModel
 from .sandbox import get_sandbox_runner
+
+
+LOG = logging.getLogger(__name__)
 
 
 class AgentState(TypedDict):
@@ -37,6 +42,7 @@ class AgentConfig:
 
 
 def _system_prompt() -> str:
+    """Return the system prompt shared across propose/reflect steps."""
     return (
         "You are a Python bug-fixing assistant. Given a function specification/prompt, "
         "write the full function implementation. Respond ONLY with a single Python code block "
@@ -95,7 +101,7 @@ def execute(state: AgentState) -> Dict[str, Any]:
     result = runner(code, tests, entry_point, cfg.sandbox_timeout)
     dt = time.time() - t0
     metrics["t_execute_sec"] = metrics.get("t_execute_sec", 0.0) + dt
-    logging.info(
+    LOG.info(
         "Sandbox run: passed=%s exit=%s time=%.2fs",
         bool(result.get("passed")),
         result.get("exit_code"),
