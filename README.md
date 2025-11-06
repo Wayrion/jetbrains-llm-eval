@@ -38,6 +38,7 @@ This repository packages a LangGraph-based ReAct agent that repairs buggy Python
 		 --model qwen3-0.6b \
 		 --dataset-path ./dataset/humaneval_py.parquet \
 		 --max 5 \
+		 --temperature 0.0 \
 		 --out ./results/results.jsonl \
 		 --verbose \
 		 --visualize
@@ -48,11 +49,12 @@ This repository packages a LangGraph-based ReAct agent that repairs buggy Python
 ### Additional CLI Examples
 
 ```bash
-# Evaluate a synthetic parquet and generate a matching visualization
+# Evaluate a synthetic parquet at a higher sampling temperature and generate a visualization
 uv run run.py \
 	--model qwen3-0.6b \
 	--dataset-path ./dataset/bogus.parquet \
 	--max 5 \
+	--temperature 0.7 \
 	--out ./results/bogus.jsonl \
 	--verbose \
 	--visualize
@@ -83,6 +85,7 @@ Large language models remain partially opaque systems, so the project ships with
 ## Command-Line Interface
 - `--model` (str) selects the Hugging Face model ID or alias.
 - `--max` (int) limits the number of benchmark problems processed.
+- `--temperature` (float) controls sampling randomness; defaults to deterministic `0.0`.
 - `--out` (path) writes per-task JSONL results to disk.
 - `--iters` (int) enables optional repair iterations beyond the first execution (default 0 for pass@1, other values for pass@k metric).
 - `--sandbox {process,docker}` switches between the local subprocess sandbox and a Docker-based variant.
