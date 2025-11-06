@@ -1,65 +1,53 @@
-## LLM agent to fix Python code and evaluate on Humaneval (pass@1)
+## LLM Agent for Humaneval Pass@1 Assessment
 
-This repo provides a production-ready scaffold using LangGraph to run a ReAct-style agent that:
+This repository packages a LangGraph-based ReAct agent that repairs buggy Python functions and evaluates them against the BigCode `bigcode/humanevalpack` benchmark. The agent is tailored for strict pass@1 scoring and is designed to run end-to-end on modest hardware using compact instruction-tuned models such as `Qwen/Qwen2.5-0.5B-Instruct`.
 
-- Uses a small instruction-tuned model (default: Qwen/Qwen2.5-0.5B-Instruct) locally via Transformers
-- Has a sandboxed Python “code interpreter” tool to execute unit tests safely
-- Evaluates on BigCode’s `bigcode/humanevalpack` (python) using pass@1
+### Key Capabilities
+- Run a deterministic ReAct-style loop (propose, execute, optional reflect) with LangGraph.
+- Execute model-produced code in an isolated sandbox with CPU, memory, and network safeguards.
+- Compute pass@1 on the Python Humaneval subset, optionally resuming previous runs and visualizing outcomes.
 
-What’s included
-- `src/agent/llm.py` — lightweight local Transformers chat wrapper
-- `src/agent/sandbox.py` — sandboxed subprocess runner with CPU/memory/timeout and network-block stubs
-- `src/agent/react_agent.py` — LangGraph ReAct loop: propose -> execute -> reflect
-- `src/eval/humaneval_eval.py` — evaluation harness for HumanevalPack, producing JSONL results and pass@1
-- `run.py` — CLI to run the benchmark end-to-end
+### Requirements
+- Python 3.11 or newer.
+- `transformers` and a compatible `torch` build (install the wheel for your platform before running).
+- `datasets` for loading Humaneval locally or from the Hugging Face Hub.
 
-Requirements
-- Python 3.11+
-- transformers, torch (install a torch build suitable for your platform)
-- datasets
+> TIP: Install a platform-specific torch build (CPU, CUDA, or ROCm) before launching the CLI so `transformers` can select the correct backend.
 
-> [!NOTE]
-> Install a platform-specific torch build (CPU, CUDA, or ROCm) before running the CLI so transformers can locate the correct backend.
+## Quick Start
 
-## Quick start
+1. **Create a virtual environment and install dependencies**
 
-1) Create and activate a virtual environment and install deps
+	 ```bash
+	 # Recommended tooling: uv (fast Python packaging)
+	 pip install uv
+	 uv venv
+	 source .venv/bin/activate
+	 uv pip install -r requirements.txt
+	 ```
 
-```bash
-# Recommended: uv (fast Python packaging)
-pip install uv
-uv venv
-source .venv/bin/activate
-uv pip install -r requirements.txt
-```
+2. **Stage the Humaneval dataset (optional but recommended)**
 
-2) Download/copy the Humaneval dataset locally (optional but recommended)
+	 Download the parquet locally and place it at `./dataset/humaneval_py.parquet`, or supply a custom location via `--dataset-path`.
 
-Place it at `./dataset/humaneval_py.parquet` or pass a custom path with `--dataset-path`.
+3. **Run the benchmark**
 
-> [!TIP]
-> Keeping a local parquet prevents repeated HF Hub downloads and shortens start-up time during rapid benchmarking.
+	 ```bash
+	 uv run run.py \
+		 --model qwen3-0.6b \
+		 --dataset-path ./dataset/humaneval_py.parquet \
+		 --max 5 \
+		 --out ./results/results.jsonl \
+		 --verbose \
+		 --visualize
+	 ```
 
-3) Run the evaluation (local model + local dataset)
+	 The command prints a JSON summary that includes pass@1, emits per-task records to `results.jsonl`, and renders a companion PNG report when `--visualize` is supplied.
 
-Execution:
-
-```bash
-uv run run.py \
-	--model qwen3-0.6b \
-	--dataset-path ./dataset/humaneval_py.parquet \
-	--max 5 \
-	--out ./results/results.jsonl \
-	--verbose \
-	--visualize
-```
-
-This prints a summary JSON with `pass@1`, writes per-problem results to `results.jsonl`, and renders a companion PNG chart with the same stem.
-
-CLI run with different options:
+### Additional CLI Examples
 
 ```bash
-# Evaluate against a synthetic/bogus parquet and emit a matching PNG snapshot
+# Evaluate a synthetic parquet and generate a matching visualization
 uv run run.py \
 	--model qwen3-0.6b \
 	--dataset-path ./dataset/bogus.parquet \
@@ -68,7 +56,7 @@ uv run run.py \
 	--verbose \
 	--visualize
 
-# Run a minimal docker-sandboxed check with environment forwarding (requires sudo)
+# Exercise the Docker sandbox (requires Docker privileges)
 sudo -E env PATH="$PATH" VIRTUAL_ENV="$VIRTUAL_ENV" uv run run.py \
 	--model qwen3-0.6b \
 	--dataset-path ./dataset/humaneval_py.parquet \
@@ -77,69 +65,58 @@ sudo -E env PATH="$PATH" VIRTUAL_ENV="$VIRTUAL_ENV" uv run run.py \
 	--verbose \
 	--sandbox docker
 
-# Re-generate the visualization from an existing JSONL results file
+# Regenerate the visualization from an existing JSONL file
 uv run python src/visualize_results.py \
 	--input results/results.jsonl \
 	--output results/results.png
 ```
 
-
-## Sample visualizations
+## Results Snapshot
 
 ![Humaneval evaluation snapshot](results/results.png)
 
+## Command-Line Interface
+- `--model` (str) selects the Hugging Face model ID or alias.
+- `--max` (int) limits the number of benchmark problems processed.
+- `--out` (path) writes per-task JSONL results to disk.
+- `--iters` (int) enables optional repair iterations beyond the first execution (default 0 for strict pass@1).
+- `--sandbox {process,docker}` switches between the local subprocess sandbox and a Docker-based variant.
+- `--resume` resumes from a prior results file, skipping already-completed tasks.
+- `--visualize` renders an aggregated PNG report once evaluation finishes.
+- `--verbose` and `--debug` increase logging detail for troubleshooting.
 
-## CLI options
-- `--iters` optional number of repair loops after the first execute (default 0 = strict pass@1). Set to a small value like 2–3 to allow propose→execute→reflect cycles.
-- `--sandbox {process,docker}` select the execution backend (`process` is the default in-process sandbox, `docker` launches a Python container using the `python:3.13-slim` image).
-- `--resume` resume from an existing JSONL results file, skipping tasks that already have recorded outcomes.
+## Agent Contract
+- Inputs: Humaneval prompt, test snippet, and required `entry_point` name.
+- Tooling: `run_python_with_tests(code, tests, entry_point)` executes candidate code inside the sandbox and returns pass/fail, exit code, stdout, and stderr.
+- Termination: The agent stops after the first execution unless additional iterations are requested via `--iters`.
 
-Environment variables
+## Sandbox Overview
+- Executes within a temporary directory using `python -I` for isolation and applies CPU, memory, and file-handle limits.
+- Blocks outbound networking and restricts filesystem access to the sandbox workspace.
+- Supports a Docker backend (`--sandbox docker`) with configurable image, CPU, memory, and PID limits via environment variables (`SANDBOX_DOCKER_IMAGE`, `SANDBOX_DOCKER_CPUS`, `SANDBOX_DOCKER_MEMORY`).
+- Monitors container lifecycle via `docker events` if needed.
 
-Agent contract
-- Input: `prompt` from humanevalpack, `tests`, `entry_point`
-- Output: full Python implementation defining the required function(s)
-- Tool: `run_python_with_tests(code, tests, entry_point)` executes in sandbox; returns pass/fail and logs
-- Termination: stop when tests pass or iteration budget is exhausted
+## Project Layout
+- `src/agent/llm.py`: lightweight Transformers chat wrapper that handles model aliases and token accounting.
+- `src/agent/sandbox.py`: sandbox runners for both subprocess and Docker execution modes.
+- `src/agent/react_agent.py`: LangGraph state machine coordinating propose, execute, and optional reflection.
+- `src/eval/humaneval_eval.py`: evaluation harness that loads Humaneval, orchestrates the agent, and aggregates pass@1.
+- `src/visualize_results.py`: matplotlib report generator using a JetBrains-inspired theme.
+- `run.py`: CLI entry point tying everything together.
 
-## Sandbox notes
-- Runs in a temporary directory with `python -I` (isolated), enforces timeout, CPU and memory limits via `resource`
-- Disables network by overriding `socket` creation in the child process
-- Restricts file open calls to the sandbox folder
-- For stricter isolation in production, consider a containerized runner (Docker/Firecracker) or OS-level sandboxes
-- Pass `--sandbox docker` to run the candidate and tests inside a short-lived Docker container (requires Docker; honors `SANDBOX_DOCKER_IMAGE`, `SANDBOX_DOCKER_CPUS`, `SANDBOX_DOCKER_MEMORY`).
-- Run `sudo docker events --filter type=container --format '{{.Time}}  {{.Status}}  {{.Actor.Attributes.name}}'` to stream the lifecycle of the container
+## Metrics and Logging
+Each JSONL record contains:
+- `task_id`, `passed`, `exit_code`, `stdout`, `stderr`, and `runtime_sec`.
+- `iters` and `timings_sec` (proposal, execution, reflection) when reflection is permitted.
+- `token_usage` capturing prompt/completion token counts for propose and reflect steps.
 
-Pass@1 metric
-- We generate a single candidate per task; pass@1 is the fraction of tasks whose tests pass on the first attempt.
-- Strict pass@1 by default: the agent runs a single sandbox execution per task (no iterative repair). To experiment with iterative repair, pass `--iters N` to allow up to N propose→execute→reflect cycles.
-- Keep `temperature=0.0` (default) for deterministic generation.
+Run with `--verbose` to view per-task summaries or `--debug` for deeper instrumentation during agent execution and sandbox runs.
 
-Reproducing results
-Run the provided command above. Your score will depend on the model and the subset size. For a quick test, try `--max 5`.
+## Troubleshooting
+- **Torch missing or incompatible:** Install a platform-specific wheel from https://pytorch.org/get-started/locally/ before invoking `run.py`.
+- **CUDA unavailable:** The model automatically falls back to CPU; consider smaller models if generation is slow.
+- **Dataset load timeouts:** Use `--dataset-path ./dataset/humaneval_py.parquet` to bypass repeated downloads.
+- **Docker permission errors:** Ensure the user can reach the Docker daemon or set `DOCKER_BIN="sudo docker"`.
 
-Troubleshooting
-- Transformers can't find torch: install a platform-appropriate torch build (see https://pytorch.org/get-started/locally/)
-- CUDA not available: generation falls back to CPU; consider smaller models or set `device_map=auto` (default) to use GPU if present
-- Dataset timeouts from HF Hub: use `--dataset-path ./dataset/humaneval_py.parquet` to bypass network
-
-## Project structure
-
-- `src/agent/llm.py` — lightweight local Transformers chat wrapper, supports short model aliases (e.g., `qwen3-0.6b`).
-- `src/agent/sandbox.py` — sandboxed subprocess runner with CPU/memory/timeout and network-block; injects the required entry point into the test module.
-- `src/agent/react_agent.py` — LangGraph ReAct loop: propose -> execute -> reflect. The assistant emits a single fenced code block; we extract and execute it.
-- `src/eval/humaneval_eval.py` — evaluation harness for HumanevalPack, sequential execution producing JSONL results and pass@1.
-- `run.py` — CLI wrapper for end-to-end runs.
-
-## Metrics and logs
-
-Per-task result objects (in `results.jsonl` and the verbose printout) include:
-
-- `runtime_sec` — total wall time for the task (agent + sandbox).
-- `iters` — number of agent reflection iterations actually used.
-- `timings_sec` — per-phase breakdown (when available):
-	- `t_propose_sec` — time spent in the initial LLM proposal.
-	- `t_execute_sec` — cumulative time executing tests in the sandbox across iterations.
-	- `t_reflect_sec` — cumulative time spent in LLM reflection cycles. Should be 0 if iters is set to 0 (Only the first trajectory is used)
-
-When running with `--verbose`, a compact breakdown is also shown per task. Running with `--debug` also provides additional information that can be helpful for troubleshooting
+## Reproducing Results
+Re-run the walkthrough command with your desired `--max` count or the full dataset. Pass@1 is reported as the fraction of problems solved on the first attempt. For reproducibility, keep `temperature=0.0` and fix random seeds if you introduce stochastic sampling.
