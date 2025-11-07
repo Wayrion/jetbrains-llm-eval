@@ -26,7 +26,7 @@ This repository packages a LangGraph-based ReAct agent that repairs buggy Python
 	 # Recommended tooling: uv (fast Python packaging)
 	 pip install uv
 	 uv venv
-	 
+
 	 # On Linux/MacOS:
 	 source .venv/bin/activate 
 	 # On Windows
@@ -97,7 +97,7 @@ uv run python src/visualize_results.py \
 
 ### Synthetic Sanity Benchmark
 
-Large language models remain partial black boxes, so the project ships with a synthetic parquet (`dataset/bogus.parquet`) that is intentionally unwinnable: every task is constructed to fail regardless of the model output. Running the CLI against this split provides a fast regression check that the evaluation pipeline surfaces failures correctly and that any reported pass@1 improvements on the real Humaneval data are plausible.
+Large language models remain partial black boxes, so I created a synthetic parquet (`dataset/bogus.parquet`) that is intentionally unwinnable: every task is constructed to fail regardless of the model output. Running the CLI against this split provides a fast regression check that the evaluation pipeline surfaces failures correctly and that any reported pass@1 improvements on the real Humaneval data are plausible.
 
 ![Synthetic dataset snapshot](results/bogus_synethic_dataset.png)
 
