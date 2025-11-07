@@ -124,7 +124,6 @@ Large language models remain partial black boxes, so the project ships with a sy
 - `src/eval/humaneval_eval.py`: evaluation harness that loads Humaneval, orchestrates the agent, and aggregates pass@1.
 - `src/visualize_results.py`: matplotlib report generator using a JetBrains-inspired theme.
 - `run.py`: CLI entry point tying everything together.
-- `scripts/download_humanevalfix.py`: helper to materialize the HumanEvalFix split locally as JSONL.
 
 ## Metrics and Logging
 Each JSONL record contains:
