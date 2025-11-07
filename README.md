@@ -121,7 +121,6 @@ Large language models remain partial black boxes, so I created a synthetic parqu
 - Executes within a temporary directory using `python -I` for isolation and applies CPU, memory, and file-handle limits.
 - Blocks outbound networking and restricts filesystem access to the sandbox workspace.
 - Supports a Docker backend (`--sandbox docker`) with configurable image, CPU, memory, and PID limits via environment variables (`SANDBOX_DOCKER_IMAGE`, `SANDBOX_DOCKER_CPUS`, `SANDBOX_DOCKER_MEMORY`).
-- Monitors container lifecycle via `docker events` if needed.
 - Run `sudo docker events --filter type=container --format '{{.Time}}  {{.Status}}  {{.Actor.Attributes.name}}'` to stream the lifecycle of the container
 
 ## Project Layout
