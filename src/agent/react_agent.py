@@ -50,7 +50,8 @@ def _system_prompt() -> str:
         "You will receive the specification and the current broken code for one function. "
         "Return only the fully corrected implementation as a single Python code block—no prose, "
         "no testing harness, no inline explanations. Preserve the original function signature "
-        "and ensure the code is self-contained."
+        "and ensure the code is self-contained. Always include any required standard library "
+        "imports, including typing constructs like List or Dict when those types are used."
     )
 
 
