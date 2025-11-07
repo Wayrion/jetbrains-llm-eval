@@ -18,13 +18,20 @@ This repository packages a LangGraph-based ReAct agent that repairs buggy Python
 
 ## Quick Start
 
-1. **Create a virtual environment and install dependencies**
+1. **Clone the repository and create a virtual environment and install dependencies**
 
 	 ```bash
+	 git clone https://github.com/Wayrion/jetbrains-llm-eval
+	 cd jetbrains-llm-eval
 	 # Recommended tooling: uv (fast Python packaging)
 	 pip install uv
 	 uv venv
-	 source .venv/bin/activate
+	 
+	 # On Linux/MacOS:
+	 source .venv/bin/activate 
+	 # On Windows
+	 venv\Scripts\activate
+
 	 uv pip install .
 	 ```
 
