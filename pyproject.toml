@@ -5,6 +5,7 @@ description = "ReAct-style LangGraph agent for HumanEvalFix bug-fixing pass@1 be
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "accelerate>=1.11.0",
     "datasets>=4.3.0",
     "langchain-core>=1.0.2",
     "langgraph>=1.0.2",
