@@ -1,4 +1,4 @@
-"""Command-line interface for running the Humaneval benchmarking harness."""
+"""Command-line interface for running the HumanEvalFix bug-fixing harness."""
 
 from __future__ import annotations
 
@@ -111,7 +111,7 @@ def main() -> None:
     os.environ.setdefault("TRANSFORMERS_VERBOSITY", "info")
     parser = argparse.ArgumentParser(
         parents=[parser_preview],
-        description="Run ReAct agent on humanevalpack (pass@1)",
+        description="Run the ReAct bug-fixing agent on HumanEvalFix tasks (pass@1)",
     )
     parser.add_argument(
         "--model",
@@ -145,7 +145,10 @@ def main() -> None:
         "--dataset-path",
         type=str,
         default=None,
-        help="Path to local humaneval parquet (e.g., ./dataset/humaneval_py.parquet). If provided, bypasses HF Hub.",
+        help=(
+            "Path to a local HumanEvalFix export (e.g., ./dataset/humanevalfix_python.jsonl). "
+            "If provided, bypasses Hugging Face Hub downloads."
+        ),
     )
     parser.add_argument(
         "--out", type=str, default=None, help="Path to JSONL results output"

@@ -1,17 +1,18 @@
-## LLM Agent for Humaneval Pass@1 Assessment
+## HumanEvalFix Bug-Fixing Agent
 
-This repository packages a LangGraph-based ReAct agent that repairs buggy Python functions and evaluates them against the BigCode `bigcode/humanevalpack` benchmark. The agent is tailored for strict pass@1 scoring and is designed to run end-to-end on modest hardware using compact instruction-tuned models such as `Qwen/Qwen2.5-0.5B-Instruct`.
+This repository packages a LangGraph-based ReAct agent that repairs buggy Python functions from the HumanEvalFix benchmark (sourced from the BigCode `bigcode/humanevalpack` repository). The pipeline feeds each task’s specification, broken implementation, and hidden tests to an LLM, runs the code inside a sandbox, and reports pass@1.
 
 ### Key Capabilities
-- Run a deterministic ReAct-style loop (propose, execute, optional reflect) with LangGraph.
-- Execute model-produced code in an isolated sandbox with CPU, memory, and network safeguards.
-- Compute pass@1 on the Python Humaneval subset, streaming per-task JSONL updates for robust resume support and optional visualization.
-- Optionally, calculate pass@k by changing the `--iters k` flag
+- ReAct-style propose → execute → (optional) reflect loop built with LangGraph, tuned for deterministic pass@1 repair attempts.
+- Bug-fix aware prompting: each task includes the docstring/spec, buggy implementation, and entry point to preserve.
+- Sandboxed execution (subprocess or Docker) with CPU/memory guards and strict network/file isolation.
+- Streaming JSONL results for resume-friendly evaluations plus optional visualization tooling.
+- Optional multi-iteration repair (`--iters`) to approximate pass@k when desired.
 
 ### Requirements
 - Python 3.11 or newer.
 - `transformers` and a compatible `torch` build (install the wheel for your platform before running).
-- `datasets` for loading Humaneval locally or from the Hugging Face Hub.
+- `datasets` for loading HumanEvalFix locally or from the Hugging Face Hub.
 
 > TIP: Install a platform-specific torch build (CPU, CUDA, or ROCm) before launching the CLI so `transformers` can select the correct backend.
 
@@ -27,7 +28,7 @@ This repository packages a LangGraph-based ReAct agent that repairs buggy Python
 	 uv pip install .
 	 ```
 
-2. **Stage the Humaneval dataset (optional but recommended)**
+2. **Stage the HumanEvalFix dataset (recommended for offline runs)**
 
 	 Download the parquet locally and place it at `./dataset/humaneval_py.parquet`, or supply a custom location via `--dataset-path`.
 
@@ -35,8 +36,8 @@ This repository packages a LangGraph-based ReAct agent that repairs buggy Python
 
 	 ```bash
 	 uv run run.py \
-		 --model qwen3-0.6b \
-		 --dataset-path ./dataset/humaneval_py.parquet \
+		 --model Qwen/Qwen2.5-0.5B-Instruct \
+		 --dataset-path ./dataset/humanevalfix_python.jsonl \
 		 --max 5 \
 		 --temperature 0.0 \
 		 --out ./results/results.jsonl \
@@ -51,7 +52,7 @@ This repository packages a LangGraph-based ReAct agent that repairs buggy Python
 ```bash
 # Evaluate a synthetic parquet at a higher sampling temperature and generate a visualization
 uv run run.py \
-	--model qwen3-0.6b \
+	--model Qwen/Qwen2.5-0.5B-Instruct \
 	--dataset-path ./dataset/bogus.parquet \
 	--max 5 \
 	--temperature 0.7 \
@@ -61,8 +62,8 @@ uv run run.py \
 
 # Exercise the Docker sandbox (requires Docker privileges)
 sudo -E env PATH="$PATH" VIRTUAL_ENV="$VIRTUAL_ENV" uv run run.py \
-	--model qwen3-0.6b \
-	--dataset-path ./dataset/humaneval_py.parquet \
+	--model Qwen/Qwen2.5-0.5B-Instruct \
+	--dataset-path ./dataset/humanevalfix_python.jsonl \
 	--max 1 \
 	--out ./results/tmp_results.jsonl \
 	--verbose \
@@ -80,7 +81,9 @@ Large language models remain partially opaque systems, so the project ships with
 
 ## Results Snapshot
 
-![Humaneval evaluation snapshot](results/results.png)
+The figure below captures a reproducible HumanEvalFix run on the first five Python tasks using `Qwen/Qwen2.5-0.5B-Instruct` with `temperature=0.0`. The agent solved 1/5 problems (pass@1 = 20%). Raw outputs live in `results/results.jsonl`; the visualization is regenerated at `results/humanevalfix_qwen25_0.5b.png`.
+
+![HumanEvalFix evaluation snapshot](results/humanevalfix_qwen25_0.5b.png)
 
 ## Command-Line Interface
 - `--model` (str) selects the Hugging Face model ID or alias.
@@ -94,7 +97,7 @@ Large language models remain partially opaque systems, so the project ships with
 - `--verbose` and `--debug` increase logging detail for troubleshooting.
 
 ## Agent Contract
-- Inputs: Humaneval prompt, test snippet, and required `entry_point` name.
+- Inputs: HumanEvalFix specification (docstring + stub), the buggy implementation to repair, hidden tests, and required `entry_point` name.
 - Tooling: `run_python_with_tests(code, tests, entry_point)` executes candidate code inside the sandbox and returns pass/fail, exit code, stdout, and stderr.
 - Termination: The agent stops after the first execution unless additional iterations are requested via `--iters`.
 
@@ -112,6 +115,7 @@ Large language models remain partially opaque systems, so the project ships with
 - `src/eval/humaneval_eval.py`: evaluation harness that loads Humaneval, orchestrates the agent, and aggregates pass@1.
 - `src/visualize_results.py`: matplotlib report generator using a JetBrains-inspired theme.
 - `run.py`: CLI entry point tying everything together.
+- `scripts/download_humanevalfix.py`: helper to materialize the HumanEvalFix split locally as JSONL.
 
 ## Metrics and Logging
 Each JSONL record contains:
@@ -124,7 +128,7 @@ Run with `--verbose` to view per-task summaries or `--debug` for deeper instrume
 ## Troubleshooting
 - **Torch missing or incompatible:** Install a platform-specific wheel from https://pytorch.org/get-started/locally before invoking `run.py`.
 - **CUDA unavailable:** The model automatically falls back to CPU; consider smaller models if generation is slow.
-- **Dataset load timeouts:** Use `--dataset-path ./dataset/humaneval_py.parquet` to bypass repeated downloads.
+- **Dataset load timeouts:** Use `--dataset-path ./dataset/humanevalfix_python.jsonl` to bypass repeated downloads.
 - **Docker permission errors:** Ensure the user can reach the Docker daemon or set `DOCKER_BIN="sudo docker"`.
 
 ## Reproducing Results

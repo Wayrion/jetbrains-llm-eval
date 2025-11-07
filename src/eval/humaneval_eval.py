@@ -37,13 +37,49 @@ class EvalConfig:
 
 
 def extract_fields(sample: dict[str, object]) -> dict[str, str]:
-    """Return standardized prompt/test/entry point fields from dataset rows."""
+    """Return standardized fields from dataset rows including buggy implementations."""
     prompt = str(sample.get("prompt") or sample.get("question") or "")
     tests = str(
         sample.get("test") or sample.get("tests") or sample.get("test_code") or ""
     )
     entry_point = str(sample.get("entry_point") or sample.get("entrypoint") or "")
-    return {"prompt": prompt, "tests": tests, "entry_point": entry_point}
+    buggy = str(sample.get("buggy_solution") or sample.get("buggy") or "")
+    return {
+        "prompt": prompt,
+        "tests": tests,
+        "entry_point": entry_point,
+        "buggy": buggy,
+    }
+
+
+def _format_bugfix_prompt(
+    specification: str, buggy_source: str, entry_point: str
+) -> str:
+    """Compose the user prompt presented to the LLM for HumanEvalFix style repair."""
+    header = (
+        "You are fixing a buggy Python implementation. "
+        "Read the specification, review the faulty code, and output a corrected implementation. "
+        "Preserve the function signature and entry-point name. Return only Python code in a single fenced block."
+    )
+
+    sections: list[str] = []
+    spec_text = specification.strip()
+    if spec_text:
+        sections.append(f"Specification and starter code:\n```python\n{spec_text}\n```")
+    buggy_text = buggy_source.strip()
+    if buggy_text:
+        sections.append(f"Buggy implementation to fix:\n```python\n{buggy_text}\n```")
+    if entry_point:
+        sections.append(
+            f"Function to fix: `{entry_point}`. Do not rename it or change its arguments."
+        )
+    sections.append(
+        "Ensure the corrected code passes the hidden tests. "
+        "Do not include explanations, comments, or test code in your reply."
+    )
+
+    body = "\n\n".join(sections)
+    return f"{header}\n\n{body}"
 
 
 def _configure_hf_timeouts() -> None:
@@ -84,13 +120,30 @@ def _project_root() -> Path:
 
 
 def _load_local_dataset_if_available(path: Optional[str], verbose: bool):
-    # Prefer a local parquet if provided or at dataset/humaneval_py.parquet
-    candidate = (
-        Path(path) if path else _project_root() / "dataset" / "humaneval_py.parquet"
-    )
-    if candidate.exists():
-        LOG.info("Loading local dataset parquet at %s", candidate)
-        dsd = load_dataset("parquet", data_files={"test": str(candidate)})
+    # Prefer a user-specified path; otherwise probe known defaults.
+    candidates: list[Path]
+    if path:
+        candidates = [Path(path)]
+    else:
+        root = _project_root() / "dataset"
+        candidates = [
+            root / "humanevalfix_python.jsonl",
+            root / "humaneval_py.parquet",
+        ]
+
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        LOG.info("Loading local dataset file at %s", candidate)
+        suffix = candidate.suffix.lower()
+        if suffix in {".parquet", ".pq"}:
+            dsd = load_dataset("parquet", data_files={"test": str(candidate)})
+        elif suffix in {".json", ".jsonl"}:
+            dsd = load_dataset("json", data_files={"test": str(candidate)})
+        else:
+            raise ValueError(
+                f"Unsupported local dataset format: {candidate.suffix}. Use .parquet or .jsonl"
+            )
         return dsd["test"]
     return None
 
@@ -144,9 +197,13 @@ def run_pass_at_1(
             jobs.append(
                 {
                     "task_id": task_id,
-                    "prompt": meta["prompt"],
+                    "spec": meta["prompt"],
+                    "prompt": _format_bugfix_prompt(
+                        meta["prompt"], meta["buggy"], meta["entry_point"]
+                    ),
                     "tests": meta["tests"],
                     "entry_point": meta["entry_point"],
+                    "buggy": meta["buggy"],
                 }
             )
     else:
@@ -257,6 +314,8 @@ def run_pass_at_1(
                 "prompt": j["prompt"],
                 "tests": j["tests"],
                 "entry_point": j["entry_point"],
+                "buggy": j.get("buggy", ""),
+                "spec": j.get("spec", ""),
                 "iters": 0,
             }
             t0 = time.time()

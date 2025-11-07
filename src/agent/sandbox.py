@@ -35,11 +35,31 @@ def _build_runner_script(entry_point: str) -> str:
         socket.socket = _blocked_socket  # type: ignore
         socket.create_connection = _blocked_socket  # type: ignore
 
-        # Restrict open to current working directory
+        # Restrict open to current working directory and Python stdlib so imports like
+        # 'typing' continue to function while still blocking arbitrary filesystem reads.
         _orig_open = builtins.open
+        sandbox_root = os.getcwd()
+
+        try:
+            import sysconfig
+
+            paths = sysconfig.get_paths()
+            stdlib_dirs = [paths.get(key) for key in ("stdlib", "platstdlib")]
+        except Exception:  # noqa: BLE001 - best-effort hardening
+            stdlib_dirs = []
+
+        allowed_prefixes = [sandbox_root]
+        for candidate in stdlib_dirs:
+            if candidate:
+                allowed_prefixes.append(os.path.abspath(candidate))
+
+        def _is_allowed(path: str) -> bool:
+            normalized = os.path.abspath(path)
+            return any(normalized.startswith(prefix) for prefix in allowed_prefixes)
+
         def _safe_open(file, *args, **kwargs):
             file = os.fspath(file)
-            if not os.path.abspath(file).startswith(os.getcwd()):
+            if not _is_allowed(file):
                 raise PermissionError("Access outside sandbox is not allowed")
             return _orig_open(file, *args, **kwargs)
         builtins.open = _safe_open  # type: ignore

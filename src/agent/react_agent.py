@@ -25,6 +25,8 @@ class AgentState(TypedDict):
     iters: int
     history: NotRequired[List[Dict[str, str]]]
     code: NotRequired[str]
+    buggy: NotRequired[str]
+    spec: NotRequired[str]
     last_result: NotRequired[Dict[str, Any]]
     final_code: NotRequired[str]
     done: NotRequired[bool]
@@ -44,10 +46,11 @@ class AgentConfig:
 def _system_prompt() -> str:
     """Return the system prompt shared across propose/reflect steps."""
     return (
-        "You are a Python bug-fixing assistant. Given a function specification/prompt, "
-        "write the full function implementation. Respond ONLY with a single Python code block "
-        "that defines the function(s) required, no prose, no explanations. Make sure your code "
-        "is self-contained and uses the exact required function name (entry point)."
+        "You are a senior Python engineer who specializes in fixing buggy implementations. "
+        "You will receive the specification and the current broken code for one function. "
+        "Return only the fully corrected implementation as a single Python code block—no prose, "
+        "no testing harness, no inline explanations. Preserve the original function signature "
+        "and ensure the code is self-contained."
     )
 
 
@@ -86,7 +89,7 @@ def propose(state: AgentState) -> Dict[str, Any]:
                 code = inner.split("\n", 1)[1]
             else:
                 code = inner
-    return {"code": code, "metrics": metrics}
+    return {"code": code.strip(), "metrics": metrics}
 
 
 def execute(state: AgentState) -> Dict[str, Any]:
@@ -164,7 +167,11 @@ def reflect(state: AgentState) -> Dict[str, Any]:
             else:
                 code = inner
     # increment iteration counter
-    return {"code": code, "iters": state.get("iters", 0) + 1, "metrics": metrics}
+    return {
+        "code": code.strip(),
+        "iters": state.get("iters", 0) + 1,
+        "metrics": metrics,
+    }
 
 
 def should_continue(state: AgentState) -> str:
