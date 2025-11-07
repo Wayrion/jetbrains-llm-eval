@@ -8,13 +8,41 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
-from matplotlib import patheffects as pe
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
+from matplotlib.patches import Rectangle
 from matplotlib.ticker import FuncFormatter
 
 # JetBrains brand-inspired palette for a bold dark theme
 JETBRAINS_BACKGROUND = "#0A0A0A"
 JETBRAINS_PANEL = "#121212"
 JETBRAINS_COLORS = ["#FF318C", "#FF6E4A", "#FFC110", "#21D789", "#3DDCFF"]
+
+
+def _compute_figure_dims(task_count: int, base_height: float, scale: float) -> float:
+    if task_count <= 0:
+        return base_height
+    return max(base_height, min(base_height + scale * task_count, 32.0))
+
+
+def _compute_bar_height(task_count: int) -> float:
+    if task_count <= 0:
+        return 0.6
+    return min(0.8, max(0.18, 18.0 / task_count))
+
+
+def _compute_label_size(task_count: int) -> int:
+    if task_count <= 0:
+        return 11
+    if task_count > 140:
+        return 7
+    if task_count > 90:
+        return 8
+    if task_count > 60:
+        return 9
+    if task_count > 35:
+        return 10
+    return 11
 
 
 def load_results(path: Path) -> List[dict]:
@@ -109,329 +137,15 @@ def infer_model_name(results: List[dict]) -> Optional[str]:
     return resolved or alias
 
 
-def plot_results(
+def _build_details_lines(
     task_ids: List[str],
     passed: List[bool],
     runtime: List[float],
-    output: Path,
-    model_name: Optional[str] = None,
-    token_usage: Optional[List[Dict[str, float]]] = None,
-    timings: Optional[List[Dict[str, float]]] = None,
-    iters: Optional[List[int]] = None,
-) -> None:
-    color_cycle = build_color_cycle(len(task_ids))
-    pass_colors = ["#0DFF00" if flag else "#FF0000" for flag in passed]
-
-    fig = plt.figure(figsize=(20, 10), facecolor=JETBRAINS_BACKGROUND)
-
-    grid = fig.add_gridspec(1, 3, width_ratios=[0.32, 0.1, 1.0], wspace=0.08)
-
-    ax_runtime = fig.add_subplot(grid[2])
-    ax_tokens = ax_runtime.twiny()
-    ax_status = fig.add_subplot(grid[1], sharey=ax_runtime)
-    ax_info = fig.add_subplot(grid[0])
-
-    ax_info.set_facecolor(JETBRAINS_PANEL)
-    for spine in ax_info.spines.values():
-        spine.set_color("#2A2A2A")
-    ax_info.set_xticks([])
-    ax_info.set_yticks([])
-    ax_info.set_xlim(0, 1)
-    ax_info.set_ylim(0, 1)
-
-    # Keep the info panel anchored to the figure edge so text never overlaps the bars.
-    ax_info.set_anchor("W")
-
-    ax_runtime.set_facecolor(JETBRAINS_PANEL)
-    for spine in ax_runtime.spines.values():
-        spine.set_color("#2A2A2A")
-    ax_runtime.tick_params(axis="x", colors="#F5F5F5")
-    ax_runtime.tick_params(axis="y", colors="#E0E0E0", labelsize=11)
-
-    ax_tokens.set_facecolor("none")
-    ax_tokens.spines["top"].set_color("#2A2A2A")
-    ax_tokens.spines["bottom"].set_visible(False)
-    ax_tokens.spines["left"].set_visible(False)
-    ax_tokens.spines["right"].set_visible(False)
-    ax_tokens.xaxis.set_ticks_position("top")
-
-    ax_tokens.tick_params(axis="x", colors="#CFE8FF", labelsize=10, pad=10)
-
-    ax_tokens.tick_params(axis="y", left=False, labelleft=False)
-
-    y_positions = list(range(len(task_ids)))
-    bars = ax_runtime.barh(
-        y_positions,
-        runtime,
-        color=color_cycle,
-        edgecolor="none",
-        alpha=0.95,
-        height=0.6,
-        zorder=4,
-        align="center",
-    )
-    ax_runtime.set_xlabel("Total runtime (sec)", color="#F5F5F5")
-    ax_runtime.set_yticks(y_positions)
-    ax_runtime.set_yticklabels(task_ids)
-    ax_runtime.invert_yaxis()
-    ax_runtime.grid(
-        True, axis="x", linestyle="--", linewidth=0.6, color="#2E2E2E", alpha=0.8
-    )
-
-    runtime_max = max(runtime) if runtime else 1.0  # Defined early for padding
-    if runtime_max <= 0:
-        runtime_max = 1.0
-
-    for idx, bar in enumerate(bars):
-        text_box = {
-            "facecolor": "#1F1F1F",
-            "alpha": 0.85,
-            "pad": 2,
-            "edgecolor": "none",
-        }
-        padding = runtime_max * 0.015
-        ax_runtime.text(
-            bar.get_width() + padding,
-            bar.get_y() + bar.get_height() / 2,
-            f"{runtime[idx]:.2f}s",
-            va="center",
-            ha="left",
-            color="#F5F5F5",
-            fontsize=10,
-            bbox=text_box,
-        )
-
-    token_axis_colors = [
-        "#0400FF",  # Dark Blue (was #0400FF84)
-        "#007ACC",  # Med Blue (was #00BBF9)
-        "#9B5DE5",  # Purple
-        "#21D789",  # Green (was #A7F3EF - too light)
-    ]
-    token_keys = [
-        ("propose_prompt_tokens", "Prompt"),
-        ("reflect_prompt_tokens", "Reflect prompt"),
-        ("propose_completion_tokens", "Completion"),
-        ("reflect_completion_tokens", "Reflect completion"),
-    ]
-    if token_usage is None:
-        token_usage = [{} for _ in task_ids]
-
-    task_token_totals = [
-        sum(float(entry.get(key, 0.0)) for key, _ in token_keys)
-        for entry in token_usage
-    ]
-    max_tokens_actual = max(task_token_totals) if task_token_totals else 0.0
-    # runtime_max defined earlier
-
-    desired_max_tokens = max(max_tokens_actual, 1000.0)
-
-    if desired_max_tokens > 0:
-        token_step = select_token_step(desired_max_tokens)
-        nice_max_tokens = max(
-            token_step,
-            math.ceil(desired_max_tokens / token_step) * token_step,
-        )
-    else:
-        token_step = 10
-        nice_max_tokens = token_step
-
-    token_ratio = 0.35
-    token_axis_target = runtime_max * token_ratio
-    base_scale = token_axis_target / nice_max_tokens if nice_max_tokens else 0.0
-
-    token_runtime_ratio = 0.9
-    candidate_scales = []
-    for runtime_value, token_total in zip(runtime, task_token_totals):
-        if runtime_value > 0 and token_total > 0:
-            candidate_scales.append((runtime_value * token_runtime_ratio) / token_total)
-
-    if candidate_scales:
-        token_scale = min(base_scale, min(candidate_scales))
-    else:
-        token_scale = base_scale
-
-    if token_scale <= 0:
-        token_scale = base_scale if base_scale > 0 else 0.001
-
-    max_scaled_total = (
-        max(token_total * token_scale for token_total in task_token_totals)
-        if task_token_totals
-        else 0.0
-    )
-
-    if max_scaled_total > 0:
-        token_axis_limit = max_scaled_total * 1.1
-    else:
-        token_axis_limit = runtime_max * 0.15 if runtime_max > 0 else 1.0
-
-    if runtime_max > 0:
-        token_axis_limit = min(token_axis_limit, runtime_max * token_runtime_ratio)
-        token_axis_limit = max(token_axis_limit, runtime_max * 0.12)
-
-    ax_tokens.set_xlim(0, token_axis_limit)
-    ax_tokens.set_xlabel("Tokens", color="#CFE8FF", labelpad=8)
-    ax_tokens.grid(
-        True, axis="x", linestyle="--", linewidth=0.5, color="#3A3A3A", alpha=0.7
-    )
-
-    if nice_max_tokens and token_scale > 0:
-        ticks_actual = list(range(0, int(nice_max_tokens) + token_step, token_step))
-        ticks_scaled = [tick * token_scale for tick in ticks_actual]
-        ax_tokens.set_xticks(ticks_scaled)
-        ax_tokens.xaxis.set_major_formatter(
-            FuncFormatter(
-                lambda value, _: (
-                    f"{round((value / token_scale) / token_step) * token_step:,.0f}"
-                    if token_scale
-                    else "0"
-                )
-            )
-        )
-    else:
-        ax_tokens.set_xticks([])
-
-    cumulative_scaled = [0.0 for _ in task_ids]
-    bar_positions = [{} for _ in task_ids]
-
-    for idx_key, (key, label) in enumerate(token_keys):
-        series_actual = [float(entry.get(key, 0.0)) for entry in token_usage]
-        if not any(series_actual):
-            continue
-        series_scaled = [value * token_scale for value in series_actual]
-
-        ax_tokens.barh(
-            y_positions,
-            series_scaled,
-            left=cumulative_scaled,
-            color=token_axis_colors[idx_key % len(token_axis_colors)],
-            edgecolor="none",
-            alpha=0.75,
-            height=0.42,
-            label=label,
-            zorder=6,
-            align="center",
-        )
-
-        new_cumulative_scaled = [
-            cum + scaled for cum, scaled in zip(cumulative_scaled, series_scaled)
-        ]
-
-        for i in range(len(task_ids)):
-            if series_scaled[i] > 0:
-                bar_positions[i][key] = new_cumulative_scaled[i]
-
-        cumulative_scaled = new_cumulative_scaled
-
-    if ax_tokens.get_legend_handles_labels()[0]:
-        legend = ax_tokens.legend(
-            loc="right",
-            frameon=False,
-            fontsize=10,
-            title="Token Type",
-        )
-        legend.get_title().set_color("#F5F5F5")
-        for text in legend.get_texts():
-            text.set_color("#F5F5F5")
-
-    axis_limit = ax_tokens.get_xlim()[1]
-    padding_scaled = axis_limit * 0.015
-
-    text_props_inside = {
-        "va": "center",
-        "ha": "right",
-        "color": "#FFFFFF",
-        "fontsize": 10,
-        "fontweight": "bold",
-        "zorder": 8,
-    }
-    text_props_outside = {
-        "va": "center",
-        "ha": "left",
-        "color": "#CFE8FF",
-        "fontsize": 10,
-        "fontweight": "bold",
-        "zorder": 8,
-    }
-    token_label_shadow = [
-        pe.withSimplePatchShadow(offset=(1.0, -1.0), shadow_rgbFace=(0, 0, 0, 0.45)),
-        pe.Normal(),
-    ]
-
-    for idx_task in range(len(task_ids)):
-        propose_prompt = token_usage[idx_task].get("propose_prompt_tokens", 0.0)
-        reflect_prompt = token_usage[idx_task].get("reflect_prompt_tokens", 0.0)
-        propose_completion = token_usage[idx_task].get("propose_completion_tokens", 0.0)
-        reflect_completion = token_usage[idx_task].get("reflect_completion_tokens", 0.0)
-
-        prompt_total_raw = propose_prompt + reflect_prompt
-        completion_total_raw = propose_completion + reflect_completion
-        total_raw = prompt_total_raw + completion_total_raw
-
-        if total_raw == 0:
-            continue
-
-        task_pos = bar_positions[idx_task]
-
-        prompt_edge_scaled = task_pos.get(
-            "reflect_prompt_tokens", task_pos.get("propose_prompt_tokens", 0.0)
-        )
-        completion_edge_scaled = task_pos.get(
-            "reflect_completion_tokens",
-            task_pos.get("propose_completion_tokens", 0.0),
-        )
-        total_edge_scaled = completion_edge_scaled
-
-        if prompt_total_raw > 0 and prompt_edge_scaled > 0:
-            prompt_text = ax_tokens.text(
-                prompt_edge_scaled - padding_scaled,
-                y_positions[idx_task],
-                f"P: {format_token_value(prompt_total_raw)}",  # Use short formatter
-                **text_props_inside,
-            )
-            prompt_text.set_path_effects(token_label_shadow)
-
-        if completion_total_raw > 0 and completion_edge_scaled > prompt_edge_scaled:
-            completion_offset_scaled = padding_scaled * 0.5
-            completion_text = ax_tokens.text(
-                completion_edge_scaled - completion_offset_scaled,
-                y_positions[idx_task],
-                f"  C: {format_token_value(completion_total_raw)}",  # Use short formatter with padding
-                **text_props_inside,
-            )
-            completion_text.set_path_effects(token_label_shadow)
-
-        total_text = ax_tokens.text(
-            total_edge_scaled + padding_scaled,
-            y_positions[idx_task],
-            f"T: {format_token_label(total_raw)}",  # Use long formatter
-            **text_props_outside,
-        )
-        total_text.set_path_effects(token_label_shadow)
-
-    # Dedicated axis keeps pass/fail squares clear of the runtime bars.
-    ax_status.set_facecolor("none")
-    for spine in ax_status.spines.values():
-        spine.set_visible(False)
-    ax_status.set_xticks([])
-    ax_status.set_yticks([])
-    ax_status.set_xlim(-0.6, 0.6)
-    marker_y = [bar.get_y() + bar.get_height() / 2 for bar in bars]
-    ax_status.scatter(
-        [0.0 for _ in marker_y],
-        marker_y,
-        s=180,
-        c=pass_colors,
-        marker="s",
-        edgecolors="#000000",
-        linewidths=1.5,
-        zorder=30,
-        clip_on=False,
-    )
-    ax_status.invert_yaxis()
-    runtime_ylim = ax_runtime.get_ylim()
-    ax_tokens.set_ylim(runtime_ylim)
-    ax_status.set_ylim(runtime_ylim)
-
+    token_usage: List[Dict[str, float]],
+    timings: Optional[List[Dict[str, float]]],
+    iters: Optional[List[int]],
+    token_keys: List[Tuple[str, str]],
+) -> Tuple[List[str], Dict[str, float]]:
     pass_rate = sum(passed) / len(passed) if passed else 0.0
     total_runtime = sum(runtime)
     total_pass = sum(1 for flag in passed if flag)
@@ -484,6 +198,77 @@ def plot_results(
     if iters:
         details_lines.append(f"Avg iters: {avg_iters:.1f} (max {max_iters})")
 
+    return details_lines, token_totals
+
+
+def _configure_info_panel(ax_info: Axes, details_lines: List[str]) -> None:
+    ax_info.set_facecolor(JETBRAINS_PANEL)
+    for spine in ax_info.spines.values():
+        spine.set_color("#2A2A2A")
+    ax_info.set_xticks([])
+    ax_info.set_yticks([])
+    ax_info.set_xlim(0, 1)
+    ax_info.set_ylim(0, 1)
+    ax_info.set_anchor("W")
+
+    ax_info.text(
+        0.02,
+        0.96,
+        "Run Overview",
+        color="#FFFFFF",
+        fontsize=14,
+        fontweight="bold",
+        va="top",
+        transform=ax_info.transAxes,
+    )
+
+    wrapped_lines: List[str] = []
+    for line in details_lines:
+        segments = textwrap.wrap(line, width=42, break_long_words=False)
+        wrapped_lines.extend(segments or [line])
+
+    ax_info.text(
+        0.02,
+        0.92,
+        "\n".join(wrapped_lines),
+        color="#67D5FF",
+        fontsize=12,
+        linespacing=1.3,
+        va="top",
+        transform=ax_info.transAxes,
+    )
+
+
+def _configure_status_panel(
+    ax_status: Axes,
+    bars: List[Rectangle],
+    passed: List[bool],
+) -> None:
+    pass_colors = ["#0DFF00" if flag else "#FF0000" for flag in passed]
+    task_count = max(len(passed), 1)
+    square_size = min(220.0, max(70.0, 12000.0 / task_count))
+    ax_status.set_facecolor("none")
+    for spine in ax_status.spines.values():
+        spine.set_visible(False)
+    ax_status.set_xticks([])
+    ax_status.set_yticks([])
+    ax_status.set_xlim(-0.6, 0.6)
+    marker_y = [bar.get_y() + bar.get_height() / 2 for bar in bars]
+    ax_status.scatter(
+        [0.0 for _ in marker_y],
+        marker_y,
+        s=square_size,
+        c=pass_colors,
+        marker="s",
+        edgecolors="#000000",
+        linewidths=1.5,
+        zorder=30,
+        clip_on=False,
+    )
+    ax_status.invert_yaxis()
+
+
+def _apply_titles(fig: Figure, model_name: Optional[str], subtitle: str) -> None:
     model_banner = model_name if model_name else "Model not provided"
     fig.text(
         0.5,
@@ -510,35 +295,6 @@ def plot_results(
             "pad": 6,
         },
     )
-    ax_info.text(
-        0.02,
-        0.96,
-        "Run Overview",
-        color="#FFFFFF",
-        fontsize=14,
-        fontweight="bold",
-        va="top",
-        transform=ax_info.transAxes,
-    )
-    wrapped_lines: List[str] = []
-    for line in details_lines:
-        segments = textwrap.wrap(line, width=42, break_long_words=False)
-        if segments:
-            wrapped_lines.extend(segments)
-        else:
-            wrapped_lines.append(line)
-
-    ax_info.text(
-        0.02,
-        0.92,
-        "\n".join(wrapped_lines),
-        color="#67D5FF",
-        fontsize=12,
-        linespacing=1.3,
-        va="top",
-        transform=ax_info.transAxes,
-    )
-
     fig.text(
         0.98,
         0.06,
@@ -547,12 +303,217 @@ def plot_results(
         fontsize=10,
         ha="right",
     )
+    fig.text(
+        0.5,
+        0.9,
+        subtitle,
+        color="#CFE8FF",
+        fontsize=14,
+        ha="center",
+        va="top",
+    )
 
-    fig.subplots_adjust(left=0.05, right=0.98, top=0.9, bottom=0.12)
 
-    output.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(str(output), facecolor=JETBRAINS_BACKGROUND, dpi=200)
+def plot_results(
+    task_ids: List[str],
+    passed: List[bool],
+    runtime: List[float],
+    output: Path,
+    model_name: Optional[str] = None,
+    token_usage: Optional[List[Dict[str, float]]] = None,
+    timings: Optional[List[Dict[str, float]]] = None,
+    iters: Optional[List[int]] = None,
+) -> Path:
+    if token_usage is None:
+        token_usage = [{} for _ in task_ids]
+
+    token_keys = [
+        ("propose_prompt_tokens", "Prompt"),
+        ("reflect_prompt_tokens", "Reflect prompt"),
+        ("propose_completion_tokens", "Completion"),
+        ("reflect_completion_tokens", "Reflect completion"),
+    ]
+
+    details_lines, _ = _build_details_lines(
+        task_ids,
+        passed,
+        runtime,
+        token_usage,
+        timings,
+        iters,
+        token_keys,
+    )
+
+    task_count = len(task_ids)
+    color_cycle = build_color_cycle(task_count)
+    fig_height = _compute_figure_dims(task_count, base_height=9.0, scale=0.14)
+    label_size = _compute_label_size(task_count)
+    bar_height = _compute_bar_height(task_count)
+    value_font = 10 if task_count <= 80 else 8
+
+    suffix = output.suffix or ".png"
+    output_path = output if output.suffix else output.with_suffix(suffix)
+
+    fig = plt.figure(figsize=(22, fig_height), facecolor=JETBRAINS_BACKGROUND)
+    grid = fig.add_gridspec(
+        1,
+        4,
+        width_ratios=[0.32, 0.08, 1.0, 1.0],
+        wspace=0.03,
+    )
+
+    ax_info = fig.add_subplot(grid[0])
+    ax_runtime = fig.add_subplot(grid[2])
+    ax_status = fig.add_subplot(grid[1], sharey=ax_runtime)
+    ax_tokens = fig.add_subplot(grid[3], sharey=ax_runtime)
+
+    _configure_info_panel(ax_info, details_lines)
+
+    # Runtime chart
+    ax_runtime.set_facecolor(JETBRAINS_PANEL)
+    for spine in ax_runtime.spines.values():
+        spine.set_color("#2A2A2A")
+    ax_runtime.tick_params(axis="x", colors="#F5F5F5", labelsize=label_size)
+    ax_runtime.tick_params(axis="y", colors="#E0E0E0", labelsize=label_size)
+
+    y_positions = list(range(task_count))
+    bars_runtime = ax_runtime.barh(
+        y_positions,
+        runtime,
+        color=color_cycle,
+        edgecolor="none",
+        alpha=0.95,
+        height=bar_height,
+        align="center",
+    )
+    ax_runtime.set_xlabel("Runtime (s)", color="#F5F5F5")
+    ax_runtime.set_yticks(y_positions)
+    ax_runtime.set_yticklabels(task_ids)
+    ax_runtime.invert_yaxis()
+    ax_runtime.grid(
+        True,
+        axis="x",
+        linestyle="--",
+        linewidth=0.6,
+        color="#2E2E2E",
+        alpha=0.8,
+    )
+    ax_runtime.margins(x=0, y=0)
+    ax_runtime.set_ylim(task_count - 0.5, -0.5)
+
+    runtime_max = max(runtime) if runtime else 1.0
+    runtime_max = max(runtime_max, 1e-6)
+    ax_runtime.set_xlim(0, runtime_max * 1.03 if runtime_max > 0 else 1.0)
+    runtime_padding = runtime_max * 0.01
+    for idx, bar in enumerate(bars_runtime):
+        text_x = min(bar.get_width() + runtime_padding, ax_runtime.get_xlim()[1])
+        ax_runtime.text(
+            text_x,
+            bar.get_y() + bar.get_height() / 2,
+            f"{runtime[idx]:.2f}s",
+            va="center",
+            ha="left",
+            color="#F5F5F5",
+            fontsize=value_font,
+        )
+
+    # Token chart
+    ax_tokens.set_facecolor(JETBRAINS_PANEL)
+    for spine in ax_tokens.spines.values():
+        spine.set_color("#2A2A2A")
+    ax_tokens.tick_params(axis="x", colors="#CFE8FF", labelsize=label_size)
+    ax_tokens.tick_params(axis="y", left=False, labelleft=False)
+
+    token_axis_colors = [
+        "#0400FF",
+        "#007ACC",
+        "#9B5DE5",
+        "#21D789",
+    ]
+    cumulative = [0.0 for _ in task_ids]
+
+    for idx_key, (key, label) in enumerate(token_keys):
+        series = [float(entry.get(key, 0.0)) for entry in token_usage]
+        if not any(series):
+            continue
+        ax_tokens.barh(
+            y_positions,
+            series,
+            left=cumulative,
+            color=token_axis_colors[idx_key % len(token_axis_colors)],
+            edgecolor="none",
+            alpha=0.85,
+            height=bar_height,
+            label=label,
+            align="center",
+        )
+        cumulative = [cum + value for cum, value in zip(cumulative, series)]
+
+    ax_tokens.set_xlabel("Tokens", color="#CFE8FF")
+    ax_tokens.invert_yaxis()
+    ax_tokens.grid(
+        True,
+        axis="x",
+        linestyle="--",
+        linewidth=0.5,
+        color="#3A3A3A",
+        alpha=0.7,
+    )
+    ax_tokens.margins(x=0, y=0)
+    ax_tokens.set_ylim(task_count - 0.5, -0.5)
+
+    total_tokens_per_task = cumulative
+    max_tokens = max(total_tokens_per_task) if total_tokens_per_task else 0.0
+    if max_tokens > 0:
+        nice_max = max(max_tokens, 100.0)
+        step = select_token_step(nice_max)
+        nice_max = max(step, math.ceil(nice_max / step) * step)
+        ax_tokens.set_xlim(0, nice_max * 1.03)
+        ax_tokens.xaxis.set_major_formatter(
+            FuncFormatter(lambda value, _: format_token_value(value))
+        )
+        ax_tokens.set_xticks(list(range(0, int(nice_max) + step, step)))
+    else:
+        ax_tokens.set_xlim(0, 1)
+        ax_tokens.set_xticks([0, 1])
+
+    if any(sum(entry.get(key, 0.0) for key, _ in token_keys) > 0 for entry in token_usage):
+        legend = ax_tokens.legend(
+            loc="right",
+            frameon=False,
+            fontsize=10,
+            title="Token Type",
+        )
+        legend.get_title().set_color("#F5F5F5")
+        for text in legend.get_texts():
+            text.set_color("#F5F5F5")
+
+    xmax = ax_tokens.get_xlim()[1]
+    for idx, total in enumerate(total_tokens_per_task):
+        if total <= 0:
+            continue
+        offset = max(1.0, xmax * 0.015)
+        text_x = min(total + offset, xmax)
+        ax_tokens.text(
+            text_x,
+            idx,
+            format_token_label(total),
+            color="#CFE8FF",
+            fontsize=value_font,
+            va="center",
+        )
+
+    # Pass/fail status uses runtime bars for alignment
+    _configure_status_panel(ax_status, list(bars_runtime), passed)
+    ax_status.set_ylim(ax_runtime.get_ylim())
+
+    _apply_titles(fig, model_name, "Runtime & Token Usage")
+    fig.subplots_adjust(left=0.04, right=0.98, top=0.93, bottom=0.08)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(str(output_path), facecolor=JETBRAINS_BACKGROUND, dpi=200)
     plt.close(fig)
+    return output_path
 
 
 def main() -> None:
@@ -585,7 +546,7 @@ def main() -> None:
 
     task_ids, passed, runtime, token_usage, timings, iters = extract_metrics(results)
     model_name = args.model_name or infer_model_name(results)
-    plot_results(
+    output_path = plot_results(
         task_ids,
         passed,
         runtime,
@@ -595,7 +556,7 @@ def main() -> None:
         timings=timings,
         iters=iters,
     )
-    print(f"Visualization saved to {args.output}")
+    print(f"Visualization saved to {output_path}")
 
 
 if __name__ == "__main__":

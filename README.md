@@ -45,7 +45,7 @@ This repository packages a LangGraph-based ReAct agent that repairs buggy Python
 		 --visualize
 	 ```
 
-	 The command prints a JSON summary that includes pass@1, emits per-task records to `results.jsonl`, and renders a companion PNG report when `--visualize` is supplied.
+	 The command prints a JSON summary that includes pass@1, emits per-task records to `results.jsonl`, and renders a combined runtime/token PNG report when `--visualize` is supplied.
 
 ### Additional CLI Examples
 
@@ -81,7 +81,7 @@ Large language models remain partially opaque systems, so the project ships with
 
 ## Results Snapshot
 
-The figure below captures a reproducible HumanEvalFix run on the first five Python tasks using `Qwen/Qwen2.5-0.5B-Instruct` with `temperature=0.0`. The agent solved 1/5 problems (pass@1 = 20%). Raw outputs live in `results/results.jsonl`; the visualization is regenerated at `results/humanevalfix_qwen25_0.5b.png`.
+The figure below captures a reproducible HumanEvalFix run on the first five Python tasks using `Qwen/Qwen2.5-0.5B-Instruct` with `temperature=0.0`. The agent solved 1/5 problems (pass@1 = 20%). Raw outputs live in `results/results.jsonl`; the visualization regenerates to `results/humanevalfix_qwen25_0.5b.png`.
 
 ![HumanEvalFix evaluation snapshot](results/humanevalfix_qwen25_0.5b.png)
 
