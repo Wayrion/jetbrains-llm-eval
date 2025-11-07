@@ -137,7 +137,6 @@ Run with `--verbose` to view per-task summaries or `--debug` for deeper instrume
 - **Torch missing or incompatible:** Install a platform-specific wheel from https://pytorch.org/get-started/locally before invoking `run.py`.
 - **CUDA unavailable:** The model automatically falls back to CPU; consider smaller models if generation is slow.
 - **Dataset load timeouts:** Use `--dataset-path ./dataset/humanevalfix_python.jsonl` to bypass repeated downloads.
-- **Docker permission errors:** Ensure the user can reach the Docker daemon or set `DOCKER_BIN="sudo docker"`.
 
 ## Reproducing Results
 Re-run the walkthrough command with your desired `--max` count or the full dataset. Pass@1 is reported as the fraction of problems solved on the first attempt. For reproducibility, keep `temperature=0.0` and fix random seeds if you introduce stochastic sampling.
