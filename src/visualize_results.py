@@ -222,9 +222,10 @@ def _configure_info_panel(ax_info: Axes, details_lines: List[str]) -> None:
         transform=ax_info.transAxes,
     )
 
+    wrap_width = 36
     wrapped_lines: List[str] = []
     for line in details_lines:
-        segments = textwrap.wrap(line, width=42, break_long_words=False)
+        segments = textwrap.wrap(line, width=wrap_width, break_long_words=False)
         wrapped_lines.extend(segments or [line])
 
     ax_info.text(
@@ -272,7 +273,7 @@ def _apply_titles(fig: Figure, model_name: Optional[str], subtitle: str) -> None
     model_banner = model_name if model_name else "Model not provided"
     fig.text(
         0.5,
-        0.98,
+        0.985,
         "JetBrains LLM Eval Snapshot",
         color="#FFFFFF",
         fontsize=18,
@@ -282,17 +283,17 @@ def _apply_titles(fig: Figure, model_name: Optional[str], subtitle: str) -> None
     )
     fig.text(
         0.5,
-        0.94,
+        0.96,
         model_banner,
         color="#FFFFFF",
-        fontsize=15,
+        fontsize=14,
         ha="center",
         va="top",
         bbox={
             "facecolor": JETBRAINS_BACKGROUND,
             "edgecolor": "none",
             "alpha": 0.8,
-            "pad": 6,
+            "pad": 4,
         },
     )
     fig.text(
@@ -305,7 +306,7 @@ def _apply_titles(fig: Figure, model_name: Optional[str], subtitle: str) -> None
     )
     fig.text(
         0.5,
-        0.9,
+        0.925,
         subtitle,
         color="#CFE8FF",
         fontsize=14,
@@ -350,6 +351,7 @@ def plot_results(
     label_size = _compute_label_size(task_count)
     bar_height = _compute_bar_height(task_count)
     value_font = 10 if task_count <= 80 else 8
+    axis_label_size = max(label_size + 1, 12)
 
     suffix = output.suffix or ".png"
     output_path = output if output.suffix else output.with_suffix(suffix)
@@ -374,7 +376,7 @@ def plot_results(
     for spine in ax_runtime.spines.values():
         spine.set_color("#2A2A2A")
     ax_runtime.tick_params(axis="x", colors="#F5F5F5", labelsize=label_size)
-    ax_runtime.tick_params(axis="y", colors="#E0E0E0", labelsize=label_size)
+    ax_runtime.tick_params(axis="y", colors="#E0E0E0", labelsize=label_size, pad=3)
 
     y_positions = list(range(task_count))
     bars_runtime = ax_runtime.barh(
@@ -386,7 +388,9 @@ def plot_results(
         height=bar_height,
         align="center",
     )
-    ax_runtime.set_xlabel("Runtime (s)", color="#F5F5F5")
+    ax_runtime.set_xlabel(
+        "Runtime (s)", color="#F5F5F5", fontsize=axis_label_size, labelpad=8
+    )
     ax_runtime.set_yticks(y_positions)
     ax_runtime.set_yticklabels(task_ids)
     ax_runtime.invert_yaxis()
@@ -449,7 +453,9 @@ def plot_results(
         )
         cumulative = [cum + value for cum, value in zip(cumulative, series)]
 
-    ax_tokens.set_xlabel("Tokens", color="#CFE8FF")
+    ax_tokens.set_xlabel(
+        "Tokens", color="#CFE8FF", fontsize=axis_label_size, labelpad=8
+    )
     ax_tokens.invert_yaxis()
     ax_tokens.grid(
         True,
@@ -477,7 +483,9 @@ def plot_results(
         ax_tokens.set_xlim(0, 1)
         ax_tokens.set_xticks([0, 1])
 
-    if any(sum(entry.get(key, 0.0) for key, _ in token_keys) > 0 for entry in token_usage):
+    if any(
+        sum(entry.get(key, 0.0) for key, _ in token_keys) > 0 for entry in token_usage
+    ):
         legend = ax_tokens.legend(
             loc="right",
             frameon=False,
@@ -508,7 +516,7 @@ def plot_results(
     ax_status.set_ylim(ax_runtime.get_ylim())
 
     _apply_titles(fig, model_name, "Runtime & Token Usage")
-    fig.subplots_adjust(left=0.04, right=0.98, top=0.93, bottom=0.08)
+    fig.subplots_adjust(left=0.04, right=0.98, top=0.92, bottom=0.08)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(str(output_path), facecolor=JETBRAINS_BACKGROUND, dpi=200)
