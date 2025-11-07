@@ -75,15 +75,24 @@ uv run python src/visualize_results.py \
 	--output results/results.png
 ```
 
-### Synthetic Sanity Benchmark
-
-Large language models remain partially opaque systems, so the project ships with a synthetic parquet (`dataset/bogus.parquet`) that is intentionally unwinnable: every task is constructed to fail regardless of the model output. Running the CLI against this split provides a fast regression check that the evaluation pipeline surfaces failures correctly and that any reported pass@1 improvements on the real Humaneval data are plausible.
 
 ## Results Snapshot
 
-The figure below captures a reproducible HumanEvalFix run on the first five Python tasks using `Qwen/Qwen2.5-0.5B-Instruct` with `temperature=0.0`. The agent solved 1/5 problems (pass@1 = 20%). Raw outputs live in `results/results.jsonl`; the visualization regenerates to `results/humanevalfix_qwen25_0.5b.png`.
+| Run | Tasks | Pass@1 | Runtime (s) | Tokens (prompt/completion) |
+| --- | --- | --- | --- | --- |
+| `humanevalfix_qwen25_0.5b_10.jsonl` | 10 | 20% (2 / 10) | 374.3 | 3.5k / 1.6k |
+| `humanevalfix_qwen25_0.5b_100.jsonl` | 100 | 26% (26 / 100) | 1396.35 | 36.2k / 15.3k |
+| `humanevalfix_qwen25_0.5b_full.jsonl` | 164 | 21% (35 / 164) | 2635.21 | 90.3k / 26.8k |
 
-![HumanEvalFix evaluation snapshot](results/humanevalfix_qwen25_0.5b.png)
+![HumanEvalFix 10-task snapshot](results/humanevalfix_qwen25_0.5b_10.png)
+![HumanEvalFix 100-task snapshot](results/humanevalfix_qwen25_0.5b_100.png)
+![HumanEvalFix 164-task snapshot](results/humanevalfix_qwen25_0.5b_full.png)
+
+### Synthetic Sanity Benchmark
+
+Large language models remain partial black boxes, so the project ships with a synthetic parquet (`dataset/bogus.parquet`) that is intentionally unwinnable: every task is constructed to fail regardless of the model output. Running the CLI against this split provides a fast regression check that the evaluation pipeline surfaces failures correctly and that any reported pass@1 improvements on the real Humaneval data are plausible.
+
+![Synthetic dataset snapshot](results/bogus_synethic_dataset.png)
 
 ## Command-Line Interface
 - `--model` (str) selects the Hugging Face model ID or alias.
