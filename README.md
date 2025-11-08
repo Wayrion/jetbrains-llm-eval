@@ -44,7 +44,7 @@ This repository packages a LangGraph-based ReAct agent that repairs buggy Python
 	 ```bash
 	 uv run run.py \
 		 --model Qwen/Qwen2.5-0.5B-Instruct \
-		 --dataset-path ./dataset/humanevalfix_python.jsonl \
+		 --dataset-path ./dataset/humaneval_py.parquet \
 		 --max 5 \
 		 --temperature 0.0 \
 		 --out ./results/results.jsonl \
@@ -70,7 +70,7 @@ uv run run.py \
 # Exercise the Docker sandbox (requires Docker privileges)
 sudo -E env PATH="$PATH" VIRTUAL_ENV="$VIRTUAL_ENV" uv run run.py \
 	--model Qwen/Qwen2.5-0.5B-Instruct \
-	--dataset-path ./dataset/humanevalfix_python.jsonl \
+	--dataset-path ./dataset/humaneval_py.parquet \
 	--max 1 \
 	--out ./results/tmp_results.jsonl \
 	--verbose \
